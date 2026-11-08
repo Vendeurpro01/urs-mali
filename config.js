@@ -1,0 +1,2 @@
+// Adresse et clé publique du projet Supabase URS Mali (la clé publique peut être visible : les règles d'accès protègent les données).
+window.URS_CONFIG = { url: "https://ikgqttcyruzvjkchwvul.supabase.co", cle: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlrZ3F0dGN5cnV6dmprY2h3dnVsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQxNjcyMTIsImV4cCI6MjEwOTc0MzIxMn0.U5D3RYK3n0RpJG-zQrCBFsXLeJosAKlw2dNnQDOtxWw" };
