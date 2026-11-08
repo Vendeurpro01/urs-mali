@@ -395,6 +395,7 @@ const ENG_TYPES = [
 ];
 const engType = k => ENG_TYPES.find(t => t.k === k) || ENG_TYPES[5];
 const DROITS = [
+  { k: "equipe", l: "Gérer l'équipe : valider les inscriptions et créer des comptes coordonnateur", d: true },
   { k: "produits", l: "Ajouter des produits et modifier les prix", d: true },
   { k: "inventaire", l: "Corriger le stock par inventaire", d: true },
   { k: "tresorerie", l: "Saisir les opérations d'argent (loyer, salaires, envois au Burkina…)", d: true },
@@ -412,6 +413,7 @@ const ICONS = {
   rapports: SVG('<path d="m22 7-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/>'),
   activite: SVG('<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>'),
   parametres: SVG('<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>'),
+  equipe: SVG('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>'),
   logout: SVG('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>'),
 };
 const initials = n => String(n || "?").split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("") || "?";
@@ -424,7 +426,7 @@ const S = {
   produits: [], mouvements: [], journal: [], tresorerie: [], engagements: [], demandes: [],
   validations: [], confirmations: [], consignes: [], reappros: [],
   loaded: new Set(), names: {}, askedNames: new Set(), stale: false, fatal: null,
-  rep: { mode: "mois", from: null, to: null }, actFilter: "tout",
+  rep: { mode: "mois", from: null, to: null }, actFilter: "tout", actPerson: "tout",
 };
 const COLLS = ["produits", "mouvements", "journal", "tresorerie", "engagements", "validations", "confirmations", "consignes", "reappros"];
 let D = null;
@@ -623,15 +625,15 @@ function toast(msg, bad) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = bad ? "bad" : ""; }, bad ? 5200 : 2600);
 }
 function views() {
-  if (isPdg()) return [["accueil", "Vue PDG"], ["cloture", "Clôtures"], ["stock", "Stock"], ["tresorerie", "Trésorerie"], ["engagements", "Engagements"], ["consignes", "Consignes"], ["rapports", "Rapports"], ["activite", "Activité"], ["parametres", "Paramètres"]];
-  if (isCoordo()) return [["accueil", "Mon espace"], ["cloture", "Clôtures"], ["stock", "Stock"], ["tresorerie", "Trésorerie"], ["engagements", "Engagements"], ["consignes", "Consignes"], ["rapports", "Rapports"], ["activite", "Activité"]];
+  if (isPdg()) return [["accueil", "Vue Super admin"], ["cloture", "Clôtures"], ["stock", "Stock"], ["tresorerie", "Trésorerie"], ["engagements", "Engagements"], ["consignes", "Consignes"], ["rapports", "Rapports"], ["activite", "Activité"], ["equipe", "Équipe"], ["parametres", "Paramètres"]];
+  if (isCoordo()) return [["accueil", "Mon espace"], ["cloture", "Clôtures"], ["stock", "Stock"], ["tresorerie", "Trésorerie"], ["engagements", "Engagements"], ["consignes", "Consignes"], ["rapports", "Rapports"], ["activite", "Activité"], ["equipe", "Équipe"]];
   return [];
 }
 function currentView() { const h = (location.hash || "").replace("#", ""); return views().some(v => v[0] === h) ? h : "accueil"; }
 function tabCounts() {
   const t = today(), c = {};
-  if (isPdg()) { c.cloture = D.aValider.length; c.tresorerie = D.envoisAttente.length; c.stock = D.reapDemandes.length; c.consignes = D.consRetard.length; c.parametres = S.demandes.filter(d => !(S.config.coordos || {})[d.id]).length; }
-  else if (isCoordo()) { c.cloture = (S.journal.some(j => j.date === t) ? 0 : 1) + D.aRevoir.length; c.consignes = D.consAFaire.length; c.stock = D.reapEnvoyes.length; }
+  if (isPdg()) { c.cloture = D.aValider.length; c.tresorerie = D.envoisAttente.length; c.stock = D.reapDemandes.length; c.consignes = D.consRetard.length; c.equipe = S.demandes.length; }
+  else if (isCoordo()) { c.cloture = (S.journal.some(j => j.date === t) ? 0 : 1) + D.aRevoir.length; c.consignes = D.consAFaire.length; c.stock = D.reapEnvoyes.length; if (may("equipe")) c.equipe = S.demandes.length; }
   return c;
 }
 function renderTabs() {
@@ -640,7 +642,7 @@ function renderTabs() {
   document.body.classList.toggle("no-nav", vs.length === 0);
   $("#tabs").innerHTML = vs.map(([k, l]) => `<a href="#${k}" class="nav-item" ${k === cur ? 'aria-current="page"' : ""}><span class="ico">${ICONS[k] || ""}</span><span class="lbl">${esc(l)}</span>${counts[k] ? `<span class="count">${counts[k]}</span>` : ""}<span class="chev" aria-hidden="true">›</span></a>`).join("");
   const name = (S.moi && S.moi.nom) || (S.me ? who(S.me) : "");
-  const role = isPdg() ? "PDG" : isCoordo() ? "Coordonnateur général" : "";
+  const role = isPdg() ? "Super admin (PDG)" : isCoordo() ? "Coordonnateur" : "";
   const withAccount = !!S.sb;
   $("#sideUser").outerHTML = vs.length && name
     ? `<${withAccount ? 'button data-act="account"' : "div"} class="side-user" id="sideUser"><span class="av">${esc(initials(name))}</span><span><b>${esc(name)}</b><small>${esc(role)}</small></span></${withAccount ? "button" : "div"}>`
@@ -663,12 +665,13 @@ function pageHead(cur) {
     consignes: ["Consignes", isPdg() ? "Tes instructions au coordonnateur" : "Les instructions du PDG"],
     rapports: ["Rapports", "Chiffre d'affaires, pub, marge et bénéfice"],
     activite: ["Activité", "Qui a fait quoi, et quand"],
-    parametres: ["Paramètres", "Coordonnateur, droits, objectifs et caisse de départ"],
+    parametres: ["Paramètres", "Droits des coordonnateurs, objectifs et caisse de départ"],
+    equipe: ["Équipe", "Coordonnateurs, inscriptions et qui a fait quoi"],
   };
   let h;
   if (cur === "accueil") {
     if (isPdg()) {
-      h = "Vue PDG";
+      h = "Vue Super admin";
       if (D.coordoIds.length) { const last = lastCoordoActivity(); sub = coordoName() + " : " + (last ? "dernière saisie " + rel(last.le) : "aucune saisie encore"); }
       else sub = "Toute l'activité d'URS Store Mali";
     } else {
@@ -702,7 +705,7 @@ function render() {
   const ready = S.configLoaded && COLLS.every(c => S.loaded.has(c));
   if (!ready) { v.innerHTML = `<div class="center"><span class="logo-card"><img src="${LOGO}" alt="URS Store"></span><p>Chargement des données…</p>${S.stale ? '<p class="stale">Les données ne répondent pas encore. Vérifiez la connexion internet.</p>' : ""}</div>`; return; }
   const cur = currentView();
-  const map = { accueil: isPdg() ? viewPdg : viewCoordo, cloture: viewCloture, stock: viewStock, tresorerie: viewTresorerie, engagements: viewEngagements, consignes: viewConsignes, rapports: viewRapports, activite: viewActivite, parametres: viewParametres };
+  const map = { accueil: isPdg() ? viewPdg : viewCoordo, cloture: viewCloture, stock: viewStock, tresorerie: viewTresorerie, engagements: viewEngagements, consignes: viewConsignes, rapports: viewRapports, activite: viewActivite, equipe: viewEquipe, parametres: viewParametres };
   v.innerHTML = (S.stale ? `<p class="stale">Connexion lente : les chiffres affichés peuvent ne pas être à jour.</p>` : "") + pageHead(cur) + map[cur]();
   if (cur === "rapports") drawReportChart();
   const ids = [];
@@ -730,16 +733,17 @@ function viewAuth() {
   return `<div class="auth" id="authCard">
     <div class="center" style="padding:6px 0 0"><span class="logo-card"><img src="${LOGO}" alt="URS Store, l'art d'innover et de bien faire"></span></div>
     <section class="card">
-      <div><h2>${login ? "Connexion" : "Créer mon compte"}</h2><p class="small" style="margin:4px 0 0">${login ? "Gestion du stock, de la caisse et de la comptabilité d'URS Store Mali." : "Le PDG reçoit ton inscription et te donne l'accès."}</p></div>
+      <div><h2>${login ? "Connexion" : "Créer mon compte"}</h2><p class="small" style="margin:4px 0 0">${login ? "Gestion du stock, de la caisse et de la comptabilité d'URS Store Mali." : "Ton compte sera un compte coordonnateur, validé par le super admin ou un coordonnateur."}</p></div>
       ${login ? `${telField("l")}
         <label class="field"><span>Mot de passe</span><input type="password" id="lMdp" autocomplete="current-password"></label>
         <p class="err" id="authErr"></p>
         <button class="btn primary" data-act="login">Se connecter</button>
         <button class="btn ghost small" data-act="forgot" style="justify-self:start">Mot de passe oublié ?</button>
-        <p class="small" id="forgotMsg" hidden style="margin:0">Écris au PDG sur WhatsApp : il te donnera un nouveau mot de passe depuis l'application.</p>`
-      : `<label class="field"><span>Nom complet</span><input type="text" id="sNom" autocomplete="name" placeholder="Ex. Mohammad Traoré"></label>
+        <p class="small" id="forgotMsg" hidden style="margin:0">Écris au super admin ou à un coordonnateur : il te donnera un nouveau mot de passe depuis l'application.</p>`
+      : `<div class="field"><span>Type de compte</span><div><span class="chip coordo">Coordonnateur</span></div></div>
+        <label class="field"><span>Nom complet</span><input type="text" id="sNom" autocomplete="name" placeholder="Ex. Mohammad Traoré"></label>
         ${telField("s")}
-        <div class="f2"><label class="field"><span>Ville</span><input type="text" id="sVille" value="Bamako"></label><label class="field"><span>Fonction</span><input type="text" id="sFonction" value="Coordonnateur général"></label></div>
+        <div class="f2"><label class="field"><span>Ville</span><input type="text" id="sVille" value="Bamako"></label><label class="field"><span>Fonction</span><input type="text" id="sFonction" value="Coordonnateur"></label></div>
         <label class="field"><span>Mot de passe</span><input type="password" id="sMdp" autocomplete="new-password"><small>6 caractères minimum. Tu le choisis, personne d'autre ne le connaît.</small></label>
         <label class="field"><span>Confirmer le mot de passe</span><input type="password" id="sMdp2" autocomplete="new-password"></label>
         <p class="err" id="authErr"></p>
@@ -803,15 +807,14 @@ async function finirInscription() {
 }
 function viewPending() {
   const m = S.moi;
-  if (!m) return `<div class="card center"><span class="logo-card"><img src="${LOGO}" alt="URS Store"></span><h2>Termine ton inscription</h2><p>Indique ton nom et ta ville pour que le PDG puisse te reconnaître.</p><button class="btn primary" data-act="profile">Compléter mon inscription</button><button class="btn ghost small" data-act="logout">Se déconnecter</button></div>`;
+  if (!m) return `<div class="card center"><span class="logo-card"><img src="${LOGO}" alt="URS Store"></span><h2>Termine ton inscription</h2><p>Indique ton nom et ta ville pour qu'on puisse te reconnaître.</p><button class="btn primary" data-act="profile">Compléter mon inscription</button><button class="btn ghost small" data-act="logout">Se déconnecter</button></div>`;
   return `<div class="card center">
     <span class="logo-card"><img src="${LOGO}" alt="URS Store"></span>
-    <h2>Inscription envoyée</h2>
-    <p>Bonjour ${esc((m.nom || "").split(" ")[0])}. Le PDG doit maintenant valider ton compte. L'application s'ouvrira toute seule dès qu'il t'aura nommé.</p>
+    <h2>Compte coordonnateur créé</h2>
+    <p>Bonjour ${esc((m.nom || "").split(" ")[0])}. Ton compte doit maintenant être validé par le super admin ou un coordonnateur. L'application s'ouvrira toute seule dès qu'il sera validé.</p>
     <span class="chip warn"><span class="dot"></span>En attente de validation</span>
     <p class="small">${esc([m.tel, m.ville, m.fonction].filter(Boolean).join(" · "))}</p>
     <div class="row-actions" style="justify-content:center"><button class="btn small" data-act="profile">Modifier mes informations</button><button class="btn small" data-act="logout">Se déconnecter</button></div>
-    <button class="btn ghost small" data-act="pdg-code">Je suis le PDG</button>
   </div>`;
 }
 function viewBlocked() {
@@ -819,7 +822,7 @@ function viewBlocked() {
 }
 function openAccount() {
   const m = S.moi || {};
-  const roles = { pdg: "PDG", coordo: "Coordonnateur général", attente: "En attente", refuse: "Refusé", retire: "Retiré" };
+  const roles = { pdg: "Super admin (PDG)", coordo: "Coordonnateur", attente: "En attente", refuse: "Refusé", retire: "Retiré" };
   openSheet("Mon compte", `
     <div class="mini"><div><span class="l">Nom</span><span class="v">${esc(m.nom || "—")}</span></div><div><span class="l">Rôle</span><span class="v">${esc(roles[m.role] || "—")}</span></div><div><span class="l">Téléphone</span><span class="v">${esc(m.tel || "—")}</span></div><div><span class="l">Ville</span><span class="v">${esc(m.ville || "—")}</span></div></div>
     <button class="btn small" data-act="profile" style="justify-self:start">Modifier mes informations</button>
@@ -879,7 +882,7 @@ function setupHtml() {
   return `<section class="card"><div class="card-h"><h2>Mise en route</h2><p>À faire une seule fois</p></div><div class="steps">
     ${step(!noStart, "Fixer le solde de départ de la caisse", isPdg() ? "edit-start" : "", "Fixer")}
     ${step(!noProd, "Ajouter les produits en stock au Mali", may("produits") ? "new-prod" : "", "Ajouter")}
-    ${isPdg() ? step(!noCoordo, "Nommer le Coordonnateur général", "go-param", "Nommer") : ""}
+    ${isPdg() ? step(!noCoordo, "Valider ou créer un coordonnateur", "go-equipe", "Équipe") : ""}
   </div>${noStart && !isPdg() ? '<p class="small">Le solde de départ est fixé par le PDG.</p>' : ""}</section>`;
 }
 function lastCoordoActivity() {
@@ -918,7 +921,7 @@ function todoPdgHtml() {
       <div class="row-actions full"><button class="btn primary small" data-act="reap-envoi" data-id="${esc(r.id)}">Marquer envoyé</button><button class="btn ghost small" data-act="reap-refus" data-id="${esc(r.id)}">Refuser</button></div></div>`);
   for (const c of D.consRetard) items.push(`<div class="item clickable" data-act="go-consignes"><span class="t">Consigne en retard : ${esc(c.texte)}</span><span class="r"><span class="chip bad">Échéance ${esc(dNum(c.echeance))}</span></span></div>`);
   const pendingInsc = S.demandes.filter(d => !(S.config.coordos || {})[d.id]);
-  for (const d of pendingInsc) items.push(`<div class="item"><span class="t">Inscription : ${esc(d.nom || who(d.id))}</span><span class="r">${esc(rel(d.le))}</span><span class="m">${esc([d.fonction, d.tel, d.ville].filter(Boolean).join(" · "))}</span><div class="row-actions full"><button class="btn primary small" data-act="name-coordo" data-id="${esc(d.id)}">Nommer coordonnateur</button></div></div>`);
+  for (const d of pendingInsc) items.push(`<div class="item"><span class="t">Inscription : ${esc(d.nom || who(d.id))}</span><span class="r">${esc(rel(d.le))}</span><span class="m">${esc([d.fonction, d.tel, d.ville].filter(Boolean).join(" · "))}</span><div class="row-actions full"><button class="btn primary small" data-act="name-coordo" data-id="${esc(d.id)}">Valider le coordonnateur</button><button class="btn ghost small" data-act="drop-demande" data-id="${esc(d.id)}">Refuser</button></div></div>`);
   return `<section class="card todo"><div class="card-h"><h2>À traiter</h2><span class="chip ${items.length ? "owner" : "good"}">${items.length ? plural(items.length, "point") : "Tout est à jour"}</span></div>
     ${items.length ? `<div class="list">${items.join("")}</div>` : `<p class="empty">Aucune clôture à valider, aucun envoi à confirmer, aucune demande de stock.</p>`}</section>`;
 }
@@ -984,6 +987,7 @@ function viewCoordo() {
   for (const j of D.aRevoir) { const v = valOf(j).v || {}; tasks.push(`<div class="step"><div class="st"><span class="ck">!</span><span>Clôture du ${esc(dShort(j.date))} à revoir${v.commentaire ? ` : « ${esc(v.commentaire)} »` : ""}</span></div><button class="btn small" data-act="open-cloture" data-date="${esc(j.date)}">Corriger</button></div>`); }
   for (const c of D.consAFaire) tasks.push(`<div class="step"><div class="st"><span class="ck"></span><span>${esc(c.texte)}${c.echeance ? ` <span class="chip ${c.echeance < t ? "bad" : "muted"}">${c.echeance < t ? "En retard · " : "Avant le "}${esc(dNum(c.echeance))}</span>` : ""}</span></div><button class="btn small" data-act="cons-fait" data-id="${esc(c.id)}">C'est fait</button></div>`);
   for (const r of D.reapEnvoyes) tasks.push(`<div class="step"><div class="st"><span class="ck"></span><span>Stock envoyé par le PDG : ${num(r.qteEnvoyee || r.qte).toLocaleString("fr-FR")} × ${esc(r.nom)}. Confirme à la réception.</span></div><button class="btn primary small" data-act="reap-recu" data-id="${esc(r.id)}">Confirmer la réception</button></div>`);
+  if (may("equipe")) for (const d of S.demandes) tasks.push(`<div class="step"><div class="st"><span class="ck">+</span><span>Inscription à valider : <b>${esc(d.nom || "Nouveau membre")}</b>${d.tel ? " · " + esc(d.tel) : ""}</span></div><div class="row-actions"><button class="btn primary small" data-act="name-coordo" data-id="${esc(d.id)}">Valider</button><button class="btn ghost small" data-act="drop-demande" data-id="${esc(d.id)}">Refuser</button></div></div>`);
   for (const tr of D.envoisRefuses.filter(x => x.date >= addDays(t, -14))) { const c = confOf(tr) || {}; tasks.push(`<div class="step"><div class="st"><span class="ck">!</span><span>Le PDG n'a pas reçu l'envoi de ${F(tr.montant)} du ${esc(dNum(tr.date))}${c.commentaire ? ` : « ${esc(c.commentaire)} »` : ""}</span></div></div>`); }
   let html = setupHtml();
   html += `<section class="card todo"><div class="card-h"><h2>Mes tâches</h2><span class="chip ${tasks.length > 1 || !jt ? "owner" : "good"}">${D.consAFaire.length + D.aRevoir.length + D.reapEnvoyes.length + (jt ? 0 : 1) ? plural(D.consAFaire.length + D.aRevoir.length + D.reapEnvoyes.length + (jt ? 0 : 1), "tâche") : "À jour"}</span></div><div class="steps">${tasks.join("")}</div></section>`;
@@ -1005,20 +1009,24 @@ function allEvents() {
   for (const t of S.tresorerie) ev.push({ k: "caisse", le: t.le, par: t.par, t: catLabel(t.categorie), r: (t.sens === "entree" ? "+" : "−") + F(t.montant), m: t.motif });
   for (const c of S.confirmations) { const t = S.tresorerie.find(x => x.id === c.id); ev.push({ k: "caisse", le: c.le, par: c.par, t: `Envoi ${c.statut === "recu" ? "confirmé reçu" : "signalé non reçu"}${t ? " : " + F(t.montant) : ""}`, r: "", m: c.commentaire }); }
   for (const e of S.engagements) ev.push({ k: "eng", le: e.le, par: e.par, t: `Engagement ajouté : ${e.libelle}`, r: "" });
+  for (const m of S.membres) if (m.nomme_par && m.nomme_le && m.role !== "pdg") ev.push({ k: "equipe", le: m.nomme_le, par: m.nomme_par, t: ({ coordo: "Coordonnateur validé ou créé : ", refuse: "Inscription refusée : ", retire: "Accès retiré : ", attente: "Remis en attente : " }[m.role] || "Compte modifié : ") + (m.nom || "membre"), r: "", m: m.tel });
   for (const c of S.consignes) { ev.push({ k: "cons", le: c.le, par: c.par, t: `Consigne donnée : ${c.texte}`, r: "" }); if (c.faitLe) ev.push({ k: "cons", le: c.faitLe, par: c.faitPar, t: `Consigne faite : ${c.texte}`, r: "", m: c.reponse }); }
   return ev.filter(e => e.le).sort((a, b) => (String(a.le) < String(b.le) ? 1 : -1));
 }
 function evHtml(list) {
   if (!list.length) return `<p class="empty">Aucune saisie pour l'instant.</p>`;
-  return `<div class="list">${list.map(e => `<div class="item"><span class="t">${esc(e.t)}</span><span class="r">${esc(e.r)}</span><span class="m">${esc(who(e.par))} · ${esc(tShort(e.le))}${e.m ? " · " + esc(e.m) : ""}</span></div>`).join("")}</div>`;
+  return `<div class="list">${list.map(e => `<div class="item"><span class="t">${esc(e.t)}</span><span class="r">${esc(e.r)}</span><span class="m">${e.par ? `<button class="btn ghost small" style="padding:0" data-act="act-person" data-id="${esc(e.par)}">${esc(who(e.par))}</button>` : "—"} · ${esc(tShort(e.le))}${e.m ? " · " + esc(e.m) : ""}</span></div>`).join("")}</div>`;
 }
 const activityHtml = n => evHtml(allEvents().slice(0, n));
 function viewActivite() {
-  const F_ = [["tout", "Tout"], ["clot", "Clôtures"], ["val", "Validations"], ["stock", "Stock"], ["caisse", "Argent"], ["eng", "Engagements"], ["cons", "Consignes"]];
-  const ev = allEvents().filter(e => S.actFilter === "tout" || e.k === S.actFilter).slice(0, 200);
+  const F_ = [["tout", "Tout"], ["clot", "Clôtures"], ["val", "Validations"], ["stock", "Stock"], ["caisse", "Argent"], ["eng", "Engagements"], ["cons", "Consignes"], ["equipe", "Équipe"]];
+  const ev = allEvents().filter(e => (S.actFilter === "tout" || e.k === S.actFilter) && (S.actPerson === "tout" || e.par === S.actPerson)).slice(0, 300);
+  const gens = S.membres.filter(m => ["pdg", "coordo", "retire"].includes(m.role));
   const last = D.coordoIds.length ? lastCoordoActivity() : null;
   return `<section class="card"><div class="card-h"><div><h2>Activité</h2><p>${D.coordoIds.length ? `${esc(coordoName())} : ${last ? "dernière saisie " + esc(tShort(last.le)) : "aucune saisie"}` : "Qui a fait quoi, et quand"}</p></div></div>
+    <label class="field" style="max-width:340px"><span>Personne</span><select id="actPerson"><option value="tout">Tout le monde</option>${gens.map(m => `<option value="${esc(m.id)}" ${S.actPerson === m.id ? "selected" : ""}>${esc(m.nom || "Membre")} · ${m.role === "pdg" ? "Super admin (PDG)" : m.role === "retire" ? "retiré" : "coordonnateur"}</option>`).join("")}</select></label>
     <div class="filters" role="group" aria-label="Filtrer">${F_.map(([k, l]) => `<button data-act="act-filter" data-k="${k}" aria-pressed="${S.actFilter === k}">${l}</button>`).join("")}</div>
+    <p class="small" style="margin:0">${ev.length} saisie${ev.length > 1 ? "s" : ""}${S.actPerson !== "tout" ? " de " + esc(who(S.actPerson)) : ""}</p>
     ${evHtml(ev)}</section>`;
 }
 
@@ -1276,6 +1284,67 @@ function reportText() {
   ].join("\n");
 }
 
+/* ===================== Équipe ===================== */
+function statsMembre(id) {
+  let n = 0, last = null;
+  for (const e of allEvents()) if (e.par === id) { n++; if (!last || e.le > last) last = e.le; }
+  return { n, last };
+}
+function viewEquipe() {
+  const gere = may("equipe");
+  const actifs = S.membres.filter(m => m.role === "pdg" || m.role === "coordo").sort((a, b) => (a.role === "pdg" ? -1 : b.role === "pdg" ? 1 : String(a.nom).localeCompare(String(b.nom), "fr")));
+  const attente = S.membres.filter(m => m.role === "attente");
+  const anciens = S.membres.filter(m => m.role === "retire" || m.role === "refuse");
+  const ligne = m => {
+    const st = statsMembre(m.id);
+    const par = m.nomme_par ? who(m.nomme_par) : "";
+    const origine = m.role === "pdg" ? "Compte unique du super admin" : par ? `Validé ou créé par ${par}${m.nomme_le ? " le " + tShort(m.nomme_le) : ""}` : (m.cree_le ? "Inscrit le " + tShort(m.cree_le) : "");
+    return `<div class="item">
+      <span class="t">${esc(m.nom || "Membre")} ${m.role === "pdg" ? `<span class="chip owner">Super admin (PDG)</span>` : m.role === "coordo" ? `<span class="chip coordo">Coordonnateur</span>` : m.role === "attente" ? `<span class="chip warn">À valider</span>` : `<span class="chip muted">${m.role === "refuse" ? "Refusé" : "Retiré"}</span>`}</span>
+      <span class="r">${st.n}<small>saisie${st.n > 1 ? "s" : ""}</small></span>
+      <span class="m full">${esc([m.fonction, m.tel, m.ville].filter(Boolean).join(" · "))}${origine ? " · " + esc(origine) : ""}${st.last ? " · dernière saisie " + esc(rel(st.last)) : ""}</span>
+      <div class="row-actions full">
+        ${st.n ? `<button class="btn small" data-act="act-person" data-id="${esc(m.id)}">Voir ses saisies</button>` : ""}
+        ${m.role === "attente" && gere ? `<button class="btn primary small" data-act="name-coordo" data-id="${esc(m.id)}">Valider</button><button class="btn ghost small" data-act="drop-demande" data-id="${esc(m.id)}">Refuser</button>` : ""}
+        ${m.role === "coordo" && m.id !== S.me && (isPdg() || gere) ? `<button class="btn ghost small" data-act="reset-pwd" data-id="${esc(m.id)}">Nouveau mot de passe</button>` : ""}
+        ${m.role === "coordo" && isPdg() ? `<button class="btn ghost small" data-act="remove-coordo" data-id="${esc(m.id)}">Retirer</button>` : ""}
+        ${(m.role === "retire" || m.role === "refuse") && isPdg() ? `<button class="btn small" data-act="readmit" data-id="${esc(m.id)}">Remettre en attente</button>` : ""}
+      </div></div>`;
+  };
+  return `${gere ? `<section class="card todo"><div class="card-h"><div><h2>Inscriptions à valider</h2><p>Toute inscription crée un compte coordonnateur. Personne ne peut s'inscrire comme super admin.</p></div><button class="btn primary small" data-act="new-member">Créer un compte coordonnateur</button></div>
+      ${attente.length ? `<div class="list">${attente.map(ligne).join("")}</div>` : `<p class="empty">Aucune inscription en attente.</p>`}</section>` : ""}
+    <section class="card"><div class="card-h"><div><h2>Équipe active</h2><p>Chaque saisie garde le nom de la personne qui l'a faite : touche un nom pour retrouver toutes ses opérations.</p></div></div>
+      <div class="list">${actifs.map(ligne).join("")}</div></section>
+    ${anciens.length ? `<section class="card"><details><summary class="small">Comptes retirés ou refusés (${anciens.length})</summary><div class="list">${anciens.map(ligne).join("")}</div></details></section>` : ""}`;
+}
+function openNewMember() {
+  openSheet("Créer un compte coordonnateur", `
+    <p class="small" style="margin:0">Le compte est créé tout de suite. L'application te donne un mot de passe de départ à lui envoyer ; il pourra le changer dans « Mon compte ».</p>
+    <label class="field"><span>Nom complet</span><input type="text" id="nmNom" autocomplete="off"></label>
+    ${telField("nm")}
+    <div class="f2"><label class="field"><span>Ville</span><input type="text" id="nmVille" value="Bamako"></label><label class="field"><span>Fonction</span><input type="text" id="nmFonction" value="Coordonnateur"></label></div>
+    <p class="err" id="sheetErr"></p>
+    <div class="row-actions"><button class="btn primary" data-act="new-member-save">Créer le compte</button></div>`);
+}
+async function saveNewMember() {
+  setErr("");
+  const nom = val("nmNom").trim(), local = val("nmTel").replace(/\D/g, "");
+  if (nom.length < 3) return setErr("Entrez le nom complet.");
+  if (local.length < 8) return setErr("Entrez un numéro de téléphone valide.");
+  const digits = telDigits(val("nmPays"), val("nmTel")); const tel = telAffiche(digits);
+  const b = $('[data-act="new-member-save"]'); if (b) b.disabled = true;
+  let mdp = null;
+  try { mdp = await rpc("creer_compte", { p_tel: tel, p_nom: nom, p_ville: val("nmVille").trim(), p_fonction: val("nmFonction").trim() }); }
+  catch (e) { if (b) b.disabled = false; return setErr(/déjà un compte/.test(e.message || "") ? "Ce numéro a déjà un compte." : /réservé/.test(e.message || "") ? "Ce numéro est réservé." : /Droit/.test(e.message || "") ? "Tu n'as pas le droit de créer des comptes." : "Création impossible : " + (e.message || "réessayez.")); }
+  await loadMembres();
+  const txt = `Bonjour ${nom.split(" ")[0]}, ton compte URS Mali est prêt.\n\n1. Installe l'application URS Mali (ou ouvre https://mali.urs-holding.com).\n2. Connecte-toi avec :\n• Numéro : ${tel}\n• Mot de passe : ${mdp}\n3. Change ton mot de passe dans « Mon compte ».`;
+  openSheet("Compte créé", `<p style="margin:0"><b>${esc(nom)}</b> · ${esc(tel)} est maintenant coordonnateur.</p>
+    <div class="pwd-box">${esc(mdp)}</div>
+    <label class="field"><span>Message à lui envoyer sur WhatsApp</span><textarea id="inviteTxt" style="min-height:170px" readonly>${esc(txt)}</textarea></label>
+    <p class="small" style="margin:0">Ce mot de passe ne sera plus affiché.</p>
+    <div class="row-actions"><button class="btn primary" data-act="copy-invite">Copier le message</button></div>`);
+}
+
 /* ===================== Paramètres (PDG) ===================== */
 function viewParametres() {
   const co = Object.entries(S.config.coordos || {});
@@ -1283,13 +1352,10 @@ function viewParametres() {
   const retires = S.membres.filter(m => m.role === "retire" || m.role === "refuse");
   const o = S.config.objectifs || {};
   return `<section class="card">
-      <div class="card-h"><div><h2>Coordonnateur général</h2><p>Ton représentant au Mali. Il saisit, tu contrôles. Toi seul supprimes.</p></div></div>
-      ${co.length ? `<div class="list">${co.map(([id, c]) => `<div class="item"><span class="t">${esc(who(id))}</span><span class="r"><button class="btn small danger" data-act="remove-coordo" data-id="${esc(id)}">Retirer</button></span><span class="m">${esc([c.fonction || c.role, c.tel, c.ville].filter(Boolean).join(" · "))} · depuis ${esc(tShort(c.depuis))}</span><div class="row-actions full"><button class="btn ghost small" data-act="reset-pwd" data-id="${esc(id)}">Nouveau mot de passe</button></div></div>`).join("")}</div>` : `<p class="empty">Personne n'est encore nommé.</p>`}
-      ${dem.length ? `<h3>Inscriptions reçues</h3><div class="list">${dem.map(d => `<div class="item"><span class="t">${esc(d.nom || who(d.id))}</span><span class="r row-actions"><button class="btn primary small" data-act="name-coordo" data-id="${esc(d.id)}">Nommer</button><button class="btn ghost small" data-act="drop-demande" data-id="${esc(d.id)}">Refuser</button></span><span class="m">${esc([d.fonction, d.tel, d.ville].filter(Boolean).join(" · "))} · ${esc(tShort(d.le))}</span></div>`).join("")}</div>` : ""}
-      ${retires.length ? `<details><summary class="small">Comptes retirés ou refusés (${retires.length})</summary><div class="list">${retires.map(m => `<div class="item"><span class="t">${esc(m.nom || "Membre")}</span><span class="r"><button class="btn small" data-act="readmit" data-id="${esc(m.id)}">Remettre en attente</button></span><span class="m">${esc([m.tel, m.ville].filter(Boolean).join(" · "))}</span></div>`).join("")}</div></details>` : ""}
+      <div class="card-h"><div><h2>Équipe</h2><p>Les coordonnateurs, les inscriptions à valider et la création de comptes sont dans la page Équipe.</p></div><a class="btn small" href="#equipe">Ouvrir l'équipe</a></div>
     </section>
     <section class="card">
-      <div><h2>Droits du coordonnateur</h2><p class="small" style="margin:4px 0 0">Ce que tu lui donnes la main de faire. Les clôtures, entrées et sorties de stock et les demandes de stock restent toujours possibles.</p></div>
+      <div><h2>Droits des coordonnateurs</h2><p class="small" style="margin:4px 0 0">Ce que tu leur donnes la main de faire. Les clôtures, entrées et sorties de stock et les demandes de stock restent toujours possibles.</p></div>
       <div>${DROITS.map(d => { const v = (S.config.droits || {})[d.k]; const on = v === undefined ? d.d : !!v; return `<label class="switch"><span>${esc(d.l)}</span><input type="checkbox" data-droit="${d.k}" ${on ? "checked" : ""}></label>`; }).join("")}</div>
     </section>
     <section class="card">
@@ -1301,12 +1367,12 @@ function viewParametres() {
       <div class="mini"><div><span class="l">Solde de départ</span><span class="v">${F(S.config.soldeInitial)}</span></div><div><span class="l">Date de départ</span><span class="v">${S.config.dateDebut ? esc(dNum(S.config.dateDebut)) : "—"}</span></div></div>
     </section>
     <section class="card">
-      <h2>Donner l'accès au coordonnateur</h2>
+      <h2>Donner l'accès à un coordonnateur</h2>
       <div class="steps">
         <div class="step"><div class="st"><span class="ck">1</span><span>Envoie-lui l'application URS Mali (fichier APK) sur WhatsApp.</span></div></div>
         <div class="step"><div class="st"><span class="ck">2</span><span>Il l'installe, appuie sur « Créer mon compte » et choisit son mot de passe.</span></div></div>
-        <div class="step"><div class="st"><span class="ck">3</span><span>Son inscription apparaît ci-dessus et dans « À traiter » : appuie sur « Nommer ».</span></div></div>
-        <div class="step"><div class="st"><span class="ck">?</span><span>Mot de passe oublié : appuie sur « Nouveau mot de passe » à côté de son nom et envoie-le-lui.</span></div></div>
+        <div class="step"><div class="st"><span class="ck">3</span><span>Son inscription apparaît dans « À traiter » et dans Équipe : appuie sur « Valider ». Tu peux aussi créer directement son compte depuis Équipe.</span></div></div>
+        <div class="step"><div class="st"><span class="ck">?</span><span>Mot de passe oublié : dans Équipe, « Nouveau mot de passe » à côté de son nom.</span></div></div>
       </div>
     </section>`;
 }
@@ -1698,7 +1764,7 @@ async function rpc(name, args) {
 }
 async function nameCoordo(id) {
   const m = S.membres.find(x => x.id === id) || {};
-  if (await save(() => rpc("nommer", { p_id: id, p_role: "coordo" }), (m.nom || "Le membre") + " est Coordonnateur général")) { await loadMembres(); if (!$("#layer").hidden) closeSheet(); }
+  if (await save(() => rpc("nommer", { p_id: id, p_role: "coordo" }), (m.nom || "Le membre") + " est validé comme coordonnateur")) { await loadMembres(); if (!$("#layer").hidden) closeSheet(); }
 }
 async function setRole(id, role, msg) { if (await save(() => rpc("nommer", { p_id: id, p_role: role }), msg)) await loadMembres(); }
 async function resetPwd(id) {
@@ -1784,12 +1850,17 @@ document.addEventListener("click", async ev => {
     case "go-consignes": location.hash = "consignes"; break;
     case "rep-mode": S.rep.mode = b.dataset.mode; render(); break;
     case "act-filter": S.actFilter = b.dataset.k; render(); break;
+    case "act-person": S.actPerson = id || "tout"; if (location.hash !== "#activite") location.hash = "activite"; else render(); break;
+    case "new-member": openNewMember(); break;
+    case "new-member-save": await saveNewMember(); break;
+    case "copy-invite": { const t = ($("#inviteTxt") || {}).value || ""; try { await navigator.clipboard.writeText(t); toast("Message copié : colle-le dans WhatsApp"); } catch (e) { const a = $("#inviteTxt"); if (a) { a.focus(); a.select(); } toast("Sélectionne le texte et copie-le."); } break; }
     case "copy-report": { const txt = reportText(); try { await navigator.clipboard.writeText(txt); toast("Rapport copié : collez-le dans WhatsApp"); } catch (e) { openSheet("Rapport à copier", `<textarea style="min-height:280px" readonly>${esc(txt)}</textarea><p class="small">Sélectionnez le texte et copiez-le.</p>`); } break; }
     case "edit-start": openStart(); break;
     case "start-save": { const s = num(val("sSolde")), d = val("sDate") || today(); if (await writeConfig(c => { c.soldeInitial = s; c.dateDebut = d; }, "Caisse de départ enregistrée")) closeSheet(); break; }
     case "edit-obj": openObjectifs(); break;
     case "obj-save": { const o = { ca: num(val("oCa")), pubMax: num(val("oPub")), benef: num(val("oBen")) }; if (await writeConfig(c => { c.objectifs = o; }, "Objectifs enregistrés")) closeSheet(); break; }
     case "go-param": location.hash = "parametres"; break;
+    case "go-equipe": location.hash = "equipe"; break;
     case "name-coordo": await nameCoordo(id); break;
     case "remove-coordo": askConfirm(`Retirer ${who(id)} du rôle de Coordonnateur général ? Il ne pourra plus rien voir ni saisir.`, "Retirer", () => setRole(id, "retire", "Accès retiré")); break;
     case "drop-demande": askConfirm(`Refuser l'inscription de ${who(id)} ?`, "Refuser", () => setRole(id, "refuse", "Inscription refusée")); break;
@@ -1798,6 +1869,7 @@ document.addEventListener("click", async ev => {
 document.addEventListener("change", ev => {
   const t = ev.target;
   if (t.dataset && t.dataset.droit) { const k = t.dataset.droit, on = t.checked; writeConfig(c => { c.droits[k] = on; }, on ? "Droit accordé" : "Droit retiré"); return; }
+  if (t.id === "actPerson") { S.actPerson = t.value; render(); return; }
   if (t.id === "repFrom") { S.rep.from = t.value; render(); }
   if (t.id === "repTo") { S.rep.to = t.value; render(); }
 });
