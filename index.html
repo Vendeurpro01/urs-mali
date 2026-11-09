@@ -313,6 +313,10 @@ svg text { fill: var(--ink-3); font-size: 11px; font-family: var(--font-body); }
   .kpi .v { font-size: 18px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+.mods { display: grid; gap: 4px; }
+.mod { font-size: 13px; line-height: 1.5; color: var(--ink-2, inherit); }
+.mod .old { color: var(--bad); text-decoration: line-through; }
+.mod .new { color: var(--good); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -1053,7 +1057,7 @@ const mesCmd = () => S.commandes.filter(c => c.vendeur_id === S.me);
 const mesCourses = () => S.commandes.filter(c => c.livreur_id === S.me);
 const dispo = () => S.commandes.filter(c => c.statut === "nouvelle" && !c.livreur_id).sort((a, b) => (a.cree_le < b.cree_le ? -1 : 1));
 const cmdRetard = () => S.commandes.filter(enRetard);
-const ACT_LBL = { creer: "Vente enregistrée", prendre: "Course prise", assigner: "Livreur attribué", relacher: "Course relâchée", en_route: "En route", livree: "Livrée", echec: "Échec", annuler: "Annulée", relancer: "Relancée", uexpress: "À transférer à U-Express" };
+const ACT_LBL = { creer: "Vente enregistrée", prendre: "Course prise", assigner: "Livreur attribué", relacher: "Course relâchée", en_route: "En route", livree: "Livrée", echec: "Échec", annuler: "Annulée", relancer: "Relancée", uexpress: "À transférer à U-Express", modifier: "Vente modifiée" };
 
 function cmdChip(c) {
   const [k, l] = CST[c.statut] || ["muted", c.statut];
@@ -1070,7 +1074,7 @@ function cmdCard(c) {
   const msgs = Array.isArray(c.messages) ? c.messages.length : 0;
   return `<div class="item clickable" data-act="open-cmd" data-id="${esc(c.id)}">
     <span class="t">#${esc(c.numero)} · ${esc(clientNom(c))}</span><span class="r">${F(totalCmd(c))}<small>${esc(rel(c.cree_le))}</small></span>
-    <div class="full row-actions">${cmdChip(c)}${isVendeur() && gainDe(c.id, "commission") ? `<span class="chip good">Commission ${F(gainDe(c.id, "commission").montant)}</span>` : ""}${msgs ? `<span class="chip muted">${msgs} message${msgs > 1 ? "s" : ""}</span>` : ""}</div>
+    <div class="full row-actions">${cmdChip(c)}${modChip(c)}${isVendeur() && gainDe(c.id, "commission") ? `<span class="chip good">Commission ${F(gainDe(c.id, "commission").montant)}</span>` : ""}${msgs ? `<span class="chip muted">${msgs} message${msgs > 1 ? "s" : ""}</span>` : ""}</div>
     <span class="m full">${esc(c.client_tel)} · ${esc([c.destination, c.ville].filter(Boolean).join(", "))}<br>${esc(articlesTxt(c))}${!isVendeur() ? " · vendeur : " + esc(who(c.vendeur_id)) : ""}${c.livreur_id && !isLivreur() ? " · livreur : " + esc(who(c.livreur_id)) : ""}</span>
     ${quick.length ? `<div class="row-actions full">${quick.join("")}</div>` : ""}
   </div>`;
@@ -1174,6 +1178,7 @@ function openCmd(id) {
   if (isLivreur() && c.statut === "nouvelle" && !c.livreur_id) acts.push(btn("prendre", "Prendre la course", "primary"));
   if ((moiLiv || chef) && c.statut === "prise") acts.push(btn("en_route", "En route"));
   if ((moiLiv || chef) && enCours(c)) acts.push(btn("livree", "Livrée", "ok"), btn("echec", "Échec (motif ci-dessous)", "danger"), btn("relacher", "Relâcher la course"));
+  if ((moiVend || chef) && modifiable(c)) acts.push(`<button class="btn small" data-act="edit-vente" data-id="${esc(c.id)}">Modifier la vente</button>`);
   if ((moiVend && c.statut === "nouvelle") || (chef && !["livree", "annulee"].includes(c.statut))) acts.push(btn("annuler", "Annuler la vente"));
   if ((moiVend || chef) && ["echec", "annulee"].includes(c.statut)) acts.push(btn("relancer", "Relancer la vente", "primary"));
   if (chef && c.statut === "nouvelle" && !c.uexpress_statut) acts.push(btn("uexpress", "Transférer à U-Express"));
@@ -1195,6 +1200,8 @@ function openCmd(id) {
     ${c.note ? `<div class="quote">Note du vendeur : ${esc(c.note)}</div>` : ""}
     ${c.motif ? `<div class="quote">Motif : ${esc(c.motif)}</div>` : ""}
     ${gainsCmdHtml(c)}
+    ${modifsHtml(c)}
+    ${c.statut === "livree" ? `<p class="small" style="margin:0">Clôturée par le livreur : la vente ne peut plus être modifiée.</p>` : ""}
     <p class="small" style="margin:0">Vendeur : ${esc(who(c.vendeur_id))}${(S.membres.find(m => m.id === c.vendeur_id) || {}).tel ? ` · <a href="${esc(telHref(S.membres.find(m => m.id === c.vendeur_id).tel))}">${esc(S.membres.find(m => m.id === c.vendeur_id).tel)}</a>` : ""}${c.livreur_id ? ` · Livreur : ${esc(who(c.livreur_id))}${(S.membres.find(m => m.id === c.livreur_id) || {}).tel ? ` · <a href="${esc(telHref(S.membres.find(m => m.id === c.livreur_id).tel))}">${esc(S.membres.find(m => m.id === c.livreur_id).tel)}</a>` : ""}` : ""}</p>
     ${acts.length ? `<fieldset class="fs"><legend>Actions</legend><div class="row-actions">${acts.join("")}</div>
       ${acts.some(a => /echec|annuler/.test(a)) ? `<label class="field"><span>Motif (obligatoire pour un échec)</span><input type="text" id="cmdMotif" placeholder="Ex. client injoignable, refus, adresse introuvable"></label>` : ""}
@@ -1215,9 +1222,14 @@ async function cmdAction(id, action, texte, livreur) {
 
 /* ---- Nouvelle vente ---- */
 let VF = null;
-function openVente(pid) {
-  VF = { lignes: [{ produitId: pid || "", qte: pid ? 1 : "", prix: pid ? num((S.catalogue.find(p => p.id === pid) || {}).prix) : "" }] };
-  openSheet("Nouvelle vente", `
+function openVente(pid, editId) {
+  const ec = editId ? S.commandes.find(x => x.id === editId) : null;
+  if (editId && (!ec || !modifiable(ec))) return toast("Cette vente ne peut plus être modifiée : le livreur l'a clôturée.", true);
+  VF = ec ? { edit: ec.id, lignes: (Array.isArray(ec.articles) ? ec.articles : []).map(a => ({ produitId: a.produitId || "", nom: a.nom, qte: num(a.qte), prix: num(a.prix) })) }
+    : { lignes: [{ produitId: pid || "", qte: pid ? 1 : "", prix: pid ? num((S.catalogue.find(p => p.id === pid) || {}).prix) : "" }] };
+  if (!VF.lignes.length) VF.lignes.push({ produitId: "", qte: "", prix: "" });
+  openSheet(ec ? `Modifier la vente #${ec.numero}` : "Nouvelle vente", `
+    ${ec ? `<p class="small" style="margin:0">Tu peux modifier jusqu'à ce que le livreur clôture la vente. Chaque changement est gardé (ancienne et nouvelle valeur)${ec.livreur_id ? " et le livreur est prévenu" : ""}.</p>` : ""}
     <div class="f2"><label class="field"><span>Prénom du client</span><input type="text" id="vPrenom" autocomplete="off"></label><label class="field"><span>Nom du client</span><input type="text" id="vNom" autocomplete="off"></label></div>
     ${telField("v")}
     <div class="f2"><label class="field"><span>Destination (quartier, repère)</span><input type="text" id="vDest" placeholder="Ex. Hamdallaye ACI, près de la pharmacie"></label><label class="field"><span>Ville</span><input type="text" id="vVille" value="Bamako"></label></div>
@@ -1225,13 +1237,14 @@ function openVente(pid) {
     <div class="f2"><label class="field"><span>Frais de livraison (facultatif)</span><input type="number" inputmode="numeric" min="0" step="1" id="vFrais" placeholder="0"></label><label class="field"><span>Note pour le livreur</span><input type="text" id="vNote" placeholder="Ex. appeler avant d'arriver"></label></div>
     <div class="sum" id="vSum"></div>
     <p class="err" id="sheetErr"></p>
-    <div class="row-actions"><button class="btn primary" data-act="v-save">Enregistrer la vente</button></div>`);
+    <div class="row-actions"><button class="btn primary" data-act="v-save">${ec ? "Enregistrer les modifications" : "Enregistrer la vente"}</button></div>`);
+  if (ec) prefillVente(ec);
   renderVf(); updateVf();
 }
 function renderVf() {
-  const opts = sel => `<option value="">Choisir…</option>` + S.catalogue.map(p => `<option value="${esc(p.id)}" ${p.id === sel ? "selected" : ""}>${esc(p.nom)} · ${F(p.prix)}</option>`).join("");
+  const opts = (sel, nom) => `<option value="">Choisir…</option>` + (sel && !S.catalogue.some(p => p.id === sel) ? `<option value="${esc(sel)}" selected>${esc(nom || "Produit")}</option>` : "") + S.catalogue.map(p => `<option value="${esc(p.id)}" ${p.id === sel ? "selected" : ""}>${esc(p.nom)} · ${F(p.prix)}</option>`).join("");
   $("#vLignes").innerHTML = S.catalogue.length ? VF.lignes.map((l, i) => `<div class="line-row">
-      <select data-vf="prod" data-i="${i}" aria-label="Produit">${opts(l.produitId)}</select>
+      <select data-vf="prod" data-i="${i}" aria-label="Produit">${opts(l.produitId, l.nom)}</select>
       <input type="number" inputmode="numeric" min="1" step="1" placeholder="Qté" aria-label="Quantité" data-vf="qte" data-i="${i}" value="${esc(l.qte)}">
       <input type="number" inputmode="numeric" min="0" step="1" placeholder="Prix" aria-label="Prix unitaire" data-vf="prix" data-i="${i}" value="${esc(l.prix)}">
       <button class="rm" data-act="v-rm" data-i="${i}" aria-label="Retirer">×</button></div>`).join("") : `<p class="empty" style="padding:0">Aucun produit : le coordonnateur doit d'abord les ajouter dans Stock.</p>`;
@@ -1259,9 +1272,16 @@ async function saveVente() {
   const lignes = VF.lignes.filter(l => l.produitId);
   if (!lignes.length) return setErr("Choisissez au moins un produit.");
   if (lignes.some(l => !(num(l.qte) > 0) || !Number.isInteger(num(l.qte)))) return setErr("La quantité doit être un nombre entier supérieur à 0.");
-  const articles = lignes.map(l => { const p = S.catalogue.find(x => x.id === l.produitId) || {}; return { produitId: l.produitId, nom: p.nom || "Produit", qte: num(l.qte), prix: num(l.prix) }; });
+  const articles = lignes.map(l => { const p = S.catalogue.find(x => x.id === l.produitId) || {}; return { produitId: l.produitId, nom: p.nom || l.nom || "Produit", qte: num(l.qte), prix: num(l.prix) }; });
   const body = { client_prenom: val("vPrenom").trim(), client_nom: val("vNom").trim(), client_tel: telAffiche(telDigits(val("vPays"), val("vTel"))), destination: val("vDest").trim(), ville: val("vVille").trim() || "Bamako", articles, frais_livraison: num(val("vFrais")), note: val("vNote").trim() };
   const b = $('[data-act="v-save"]'); if (b) b.disabled = true;
+  if (VF.edit) {
+    const id = VF.edit, { error: e2 } = await S.sb.rpc("modifier_commande", { p_id: id, p_data: body });
+    if (e2) { if (b) b.disabled = false; return setErr(e2.message || "Modification impossible, réessayez."); }
+    VF = null; await loadCommandes(); toast("Vente modifiée : le changement est gardé dans la vente");
+    if (S.commandes.some(x => x.id === id)) openCmd(id); else closeSheet();
+    return;
+  }
   const { data, error } = await S.sb.from("commandes").insert(body).select("numero").single();
   if (error) { if (b) b.disabled = false; return setErr("Enregistrement impossible : " + (error.message || "réessayez.")); }
   VF = null; closeSheet(); toast(`Vente #${data ? data.numero : ""} enregistrée : elle est chez les livreurs`); await loadCommandes();
@@ -1284,7 +1304,12 @@ async function loadCommandes() {
     if (!rr.error) S.retraits = rr.data || [];
     if (!rs.error) S.soldes = new Map((rs.data || []).map(x => [x.membre_id, x]));
     const avant = new Set(S.commandes.map(c => c.id));
+    const histAvant = new Map(S.commandes.map(c => [c.id, Array.isArray(c.historique) ? c.historique.length : 0]));
     S.commandes = data || [];
+    if (S.cmdLoaded && (isLivreur() || isVendeur())) {
+      const modif = S.commandes.find(c => (c.livreur_id === S.me || c.vendeur_id === S.me) && histAvant.has(c.id) && (c.historique || []).slice(histAvant.get(c.id)).some(h => h.action === "modifier" && h.par !== S.me));
+      if (modif) { const h = modif.historique.filter(x => x.action === "modifier").pop(); toast(`Vente #${modif.numero} modifiée par ${who(h.par)} : ouvre-la pour voir les changements`); try { if (navigator.vibrate) navigator.vibrate([150, 80, 150]); } catch (e) { /* rien */ } }
+    }
     if (isLivreur() && S.cmdLoaded) {
       const neuves = S.commandes.filter(c => c.statut === "nouvelle" && !c.livreur_id && !avant.has(c.id));
       if (neuves.length) { toast(`Nouvelle course : #${neuves[0].numero} · ${neuves[0].destination}`); try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) { /* rien */ } }
@@ -1474,6 +1499,48 @@ function openTarif() {
     <div class="row-actions"><button class="btn primary" data-act="tarif-save">Enregistrer</button></div>`);
 }
 
+/* ===================== Modification d'une vente et traces ===================== */
+const MOD_LBL = { client_prenom: "Prénom du client", client_nom: "Nom du client", client_tel: "Numéro du client", destination: "Destination", ville: "Ville", note: "Note pour le livreur" };
+const modifiable = c => ["nouvelle", "prise", "en_route"].includes(c.statut);
+const modsDe = c => (Array.isArray(c.historique) ? c.historique : []).filter(h => h.action === "modifier");
+const modChip = c => { const n = modsDe(c).length; return n ? `<span class="chip muted">Modifiée${n > 1 ? " ×" + n : ""}</span>` : ""; };
+// Lignes « avant → après » d'une modification (html : avec couleurs ; sinon texte simple)
+function diffLignes(av, ap, html = true) {
+  av = av || {}; ap = ap || {}; const L = [];
+  const v = x => (x === "" || x == null ? "vide" : String(x));
+  const ch = (lbl, a, b) => html ? `${esc(lbl)} : <span class="old">${esc(v(a))}</span> → <span class="new">${esc(v(b))}</span>` : `${lbl} : ${v(a)} → ${v(b)}`;
+  for (const k of Object.keys(MOD_LBL)) if (k in ap) L.push(ch(MOD_LBL[k], av[k], ap[k]));
+  if ("articles" in ap) {
+    const key = a => a.produitId || a.nom;
+    const A = new Map((Array.isArray(av.articles) ? av.articles : []).map(a => [key(a), a])), B = new Map((Array.isArray(ap.articles) ? ap.articles : []).map(a => [key(a), a]));
+    for (const [k, a] of A) {
+      const b = B.get(k), t = `${num(a.qte)} × ${a.nom} à ${F(a.prix)}`;
+      if (!b) L.push(html ? `Produit retiré : <span class="old">${esc(t)}</span>` : `Produit retiré : ${t}`);
+      else {
+        if (num(a.qte) !== num(b.qte)) L.push(ch(`${a.nom} · quantité`, num(a.qte), num(b.qte)));
+        if (num(a.prix) !== num(b.prix)) L.push(ch(`${a.nom} · prix unitaire`, F(a.prix), F(b.prix)));
+      }
+    }
+    for (const [k, b] of B) if (!A.has(k)) { const t = `${num(b.qte)} × ${b.nom} à ${F(b.prix)}`; L.push(html ? `Produit ajouté : <span class="new">${esc(t)}</span>` : `Produit ajouté : ${t}`); }
+  }
+  if (num(av.frais_livraison) !== num(ap.frais_livraison)) L.push(ch("Frais de livraison", F(av.frais_livraison), F(ap.frais_livraison)));
+  const ta = num(av.montant) + num(av.frais_livraison), tb = num(ap.montant) + num(ap.frais_livraison);
+  if (ta !== tb) L.push(html ? `<b>${ch("À encaisser", F(ta), F(tb))}</b>` : ch("À encaisser", F(ta), F(tb)));
+  return L.length ? L : ["Modification"];
+}
+function modifsHtml(c) {
+  const mods = modsDe(c); if (!mods.length) return "";
+  return `<fieldset class="fs"><legend>Modifications (${mods.length})</legend><div class="list">${mods.slice().reverse().map(h => `<div class="item"><span class="t">${esc(who(h.par))}</span><span class="r"><small>${esc(tShort(h.le))}</small></span><div class="full mods">${diffLignes(h.avant, h.apres).map(l => `<div class="mod">${l}</div>`).join("")}</div></div>`).join("")}</div></fieldset>`;
+}
+// Remplit le formulaire de vente avec la vente à modifier
+function prefillVente(c) {
+  const set = (id, x) => { const e = $("#" + id); if (e) e.value = x == null ? "" : x; };
+  set("vPrenom", c.client_prenom); set("vNom", c.client_nom); set("vDest", c.destination); set("vVille", c.ville || "Bamako");
+  set("vFrais", num(c.frais_livraison) ? num(c.frais_livraison) : ""); set("vNote", c.note);
+  const d = String(c.client_tel || "").replace(/\D/g, ""), p = PAYS.find(([code]) => d.startsWith(code) && d.length > code.length + 7);
+  if (p) { set("vPays", p[0]); set("vTel", d.slice(p[0].length).replace(/(\d{2})(?=\d)/g, "$1 ")); } else set("vTel", c.client_tel);
+}
+
 /* ===================== Activité ===================== */
 function allEvents() {
   const ev = [];
@@ -1486,7 +1553,7 @@ function allEvents() {
   for (const c of S.confirmations) { const t = S.tresorerie.find(x => x.id === c.id); ev.push({ k: "caisse", le: c.le, par: c.par, t: `Envoi ${c.statut === "recu" ? "confirmé reçu" : "signalé non reçu"}${t ? " : " + F(t.montant) : ""}`, r: "", m: c.commentaire }); }
   for (const e of S.engagements) ev.push({ k: "eng", le: e.le, par: e.par, t: `Engagement ajouté : ${e.libelle}`, r: "" });
   for (const m of S.membres) if (m.nomme_par && m.nomme_le && m.role !== "pdg") ev.push({ k: "equipe", le: m.nomme_le, par: m.nomme_par, t: ({ coordo: "Coordonnateur validé ou créé : ", vendeur: "Vendeur validé ou créé : ", livreur: "Livreur validé ou créé : ", refuse: "Inscription refusée : ", retire: "Accès retiré : ", attente: "Remis en attente : " }[m.role] || "Compte modifié : ") + (m.nom || "membre"), r: "", m: m.tel });
-  for (const c of S.commandes) for (const h of (Array.isArray(c.historique) ? c.historique : [])) ev.push({ k: "ventes", le: h.le, par: h.par, t: `${ACT_LBL[h.action] || h.action} : #${c.numero} · ${clientNom(c)}`, r: h.action === "creer" ? F(c.montant) : h.action === "livree" ? F(totalCmd(c)) : "", m: h.texte || (h.livreur ? "livreur : " + who(h.livreur) : "") });
+  for (const c of S.commandes) for (const h of (Array.isArray(c.historique) ? c.historique : [])) ev.push({ k: "ventes", le: h.le, par: h.par, t: `${ACT_LBL[h.action] || h.action} : #${c.numero} · ${clientNom(c)}`, r: h.action === "creer" ? F(c.montant) : h.action === "livree" ? F(totalCmd(c)) : "", m: h.action === "modifier" ? diffLignes(h.avant, h.apres, false).join(" · ") : (h.texte || (h.livreur ? "livreur : " + who(h.livreur) : "")) });
   for (const r of S.retraits) { ev.push({ k: "commissions", le: r.demande_le, par: r.membre_id, t: `Retrait demandé : #${r.numero}`, r: F(r.montant), m: r.moyen }); if (r.traite_le && r.statut !== "annule") ev.push({ k: "commissions", le: r.traite_le, par: r.traite_par, t: `Retrait ${r.statut === "paye" ? "payé" : "refusé"} : ${who(r.membre_id)} #${r.numero}`, r: r.statut === "paye" ? "−" + F(r.montant) : "", m: r.motif || r.reference || "" }); }
   for (const c of S.consignes) { ev.push({ k: "cons", le: c.le, par: c.par, t: `Consigne donnée : ${c.texte}`, r: "" }); if (c.faitLe) ev.push({ k: "cons", le: c.faitLe, par: c.faitPar, t: `Consigne faite : ${c.texte}`, r: "", m: c.reponse }); }
   return ev.filter(e => e.le).sort((a, b) => (String(a.le) < String(b.le) ? 1 : -1));
@@ -2351,6 +2418,7 @@ document.addEventListener("click", async ev => {
     case "go-param": location.hash = "parametres"; break;
     case "go-equipe": location.hash = "equipe"; break;
     case "new-vente": openVente(id); break;
+    case "edit-vente": openVente(null, id); break;
     case "v-add": VF.lignes.push({ produitId: "", qte: "", prix: "" }); renderVf(); updateVf(); break;
     case "v-rm": VF.lignes.splice(+b.dataset.i, 1); if (!VF.lignes.length) VF.lignes.push({ produitId: "", qte: "", prix: "" }); renderVf(); updateVf(); break;
     case "v-save": await saveVente(); break;
