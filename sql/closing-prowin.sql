@@ -21,6 +21,10 @@ alter table public.commandes add column if not exists closing_le timestamptz;
 alter table public.commandes add column if not exists relance_le timestamptz;
 alter table public.commandes add column if not exists rejets jsonb not null default '[]'::jsonb;
 alter table public.commandes alter column vendeur_id drop not null; -- une commande en ligne n'a pas de vendeur tant que personne ne l'a prise
+-- Le statut « closing » s'ajoute aux statuts des ventes (contrainte d'origine : nouvelle → annulee)
+alter table public.commandes drop constraint if exists commandes_statut_check;
+alter table public.commandes add constraint commandes_statut_check
+  check (statut = any (array['nouvelle', 'prise', 'en_route', 'livree', 'echec', 'annulee', 'closing']));
 create unique index if not exists commandes_source_ext_ref_uq on public.commandes (source, ext_ref) where ext_ref is not null;
 create index if not exists commandes_closing_idx on public.commandes (closing) where statut = 'closing';
 create index if not exists commandes_source_maj_idx on public.commandes (source, maj_le);
