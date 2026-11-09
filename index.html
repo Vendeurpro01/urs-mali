@@ -373,6 +373,7 @@ const plural = (n, s, p) => n + " " + (Math.abs(n) > 1 ? (p || s + "s") : s);
 const CAT_SORTIE = [
   { k: "loyer", l: "Loyer" },
   { k: "salaire", l: "Salaire / commission collaborateur" },
+  { k: "commission", l: "Commissions vendeurs et livreurs" },
   { k: "envoi_bf", l: "Envoi au Burkina (prix de gros)" },
   { k: "remb_credit", l: "Remboursement de crédit" },
   { k: "achat", l: "Achat / transport de marchandise" },
@@ -400,6 +401,7 @@ const DROITS = [
   { k: "inventaire", l: "Corriger le stock par inventaire", d: true },
   { k: "tresorerie", l: "Saisir les opérations d'argent (loyer, salaires, envois au Burkina…)", d: true },
   { k: "engagements", l: "Ajouter et modifier crédits, loyer et collaborateurs", d: true },
+  { k: "retraits", l: "Payer ou refuser les retraits des vendeurs et des livreurs", d: true },
   { k: "modifValidee", l: "Modifier une clôture déjà validée par le PDG", d: false },
 ];
 const SVG = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
@@ -418,6 +420,8 @@ const ICONS = {
   ventes: SVG('<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18M16 10a4 4 0 0 1-8 0"/>'),
   produits: SVG('<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><circle cx="7" cy="7" r="1.5"/>'),
   mescourses: SVG('<path d="m16 16 2 2 4-4"/><path d="M21 10V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l2-1.1"/><path d="M3.3 7 12 12l8.7-5M12 22V12"/>'),
+  commissions: SVG('<circle cx="8" cy="8" r="6"/><path d="M18.1 10.4A6 6 0 1 1 10.3 18M7 6h1v4M16.7 13.9l.7.7-2.8 2.8"/>'),
+  compte: SVG('<path d="M20 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15v4"/><path d="M3 5v14a2 2 0 0 0 2 2h15v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/>'),
   equipe: SVG('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>'),
   logout: SVG('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>'),
 };
@@ -432,7 +436,7 @@ const S = {
   validations: [], confirmations: [], consignes: [], reappros: [],
   loaded: new Set(), names: {}, askedNames: new Set(), stale: false, fatal: null,
   rep: { mode: "mois", from: null, to: null }, actFilter: "tout", actPerson: "tout",
-  commandes: [], cmdLoaded: false, catalogue: [], cmdFilter: "tout",
+  commandes: [], cmdLoaded: false, catalogue: [], cmdFilter: "tout", gains: [], retraits: [], soldes: new Map(), tarif: null, rtOk: false,
 };
 const COLLS = ["produits", "mouvements", "journal", "tresorerie", "engagements", "validations", "confirmations", "consignes", "reappros"];
 let D = null;
@@ -528,7 +532,7 @@ function soldeAu(date) {
   return s;
 }
 function aggregate(from, to) {
-  const A = { ca: 0, cout: 0, pub: 0, chJ: 0, loyer: 0, salaire: 0, achat: 0, autre_dep: 0, envoi_bf: 0, remb_credit: 0, entrees: 0, nbClot: 0, days: new Map(), prods: new Map() };
+  const A = { ca: 0, cout: 0, pub: 0, chJ: 0, loyer: 0, salaire: 0, commission: 0, achat: 0, autre_dep: 0, envoi_bf: 0, remb_credit: 0, entrees: 0, nbClot: 0, days: new Map(), prods: new Map() };
   for (const j of S.journal) {
     if (j.date < from || j.date > to) continue;
     const ca = caOf(j), pub = num(j.pub), ch = chOf(j);
@@ -545,10 +549,10 @@ function aggregate(from, to) {
     if (t.date < from || t.date > to) continue;
     const m = num(t.montant);
     if (t.sens === "entree") { A.entrees += m; continue; }
-    if (["loyer", "salaire", "achat", "autre_dep", "envoi_bf", "remb_credit"].includes(t.categorie)) A[t.categorie] += m; else A.autre_dep += m;
+    if (["loyer", "salaire", "commission", "achat", "autre_dep", "envoi_bf", "remb_credit"].includes(t.categorie)) A[t.categorie] += m; else A.autre_dep += m;
   }
   A.marge = A.ca - A.cout;
-  A.chargesFixes = A.loyer + A.salaire + A.achat + A.autre_dep;
+  A.chargesFixes = A.loyer + A.salaire + A.commission + A.achat + A.autre_dep;
   A.net = A.marge - A.pub - A.chJ - A.chargesFixes;
   return A;
 }
@@ -617,6 +621,7 @@ const stamp = extra => Object.assign({ par: S.me || null, le: nowIso() }, extra)
 const cleanConfig = () => ({
   soldeInitial: num(S.config.soldeInitial), dateDebut: S.config.dateDebut || null,
   droits: { ...(S.config.droits || {}) }, objectifs: { ...(S.config.objectifs || {}) },
+  tarifLivraison: S.config.tarifLivraison ?? 1000,
 });
 let cfgChain = Promise.resolve(true);
 function writeConfig(mutate, msg) {
@@ -631,10 +636,10 @@ function toast(msg, bad) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = bad ? "bad" : ""; }, bad ? 5200 : 2600);
 }
 function views() {
-  if (isPdg()) return [["accueil", "Vue Super admin"], ["cloture", "Clôtures"], ["commandes", "Ventes & livraisons"], ["stock", "Stock"], ["tresorerie", "Trésorerie"], ["engagements", "Engagements"], ["consignes", "Consignes"], ["rapports", "Rapports"], ["activite", "Activité"], ["equipe", "Équipe"], ["parametres", "Paramètres"]];
-  if (isCoordo()) return [["accueil", "Mon espace"], ["cloture", "Clôtures"], ["commandes", "Ventes & livraisons"], ["stock", "Stock"], ["tresorerie", "Trésorerie"], ["engagements", "Engagements"], ["consignes", "Consignes"], ["rapports", "Rapports"], ["activite", "Activité"], ["equipe", "Équipe"]];
-  if (isVendeur()) return [["accueil", "Mon espace"], ["ventes", "Mes ventes"], ["produits", "Produits"]];
-  if (isLivreur()) return [["accueil", "Mon espace"], ["courses", "Courses disponibles"], ["mescourses", "Mes courses"]];
+  if (isPdg()) return [["accueil", "Vue Super admin"], ["cloture", "Clôtures"], ["commandes", "Ventes & livraisons"], ["commissions", "Commissions"], ["stock", "Stock"], ["tresorerie", "Trésorerie"], ["engagements", "Engagements"], ["consignes", "Consignes"], ["rapports", "Rapports"], ["activite", "Activité"], ["equipe", "Équipe"], ["parametres", "Paramètres"]];
+  if (isCoordo()) return [["accueil", "Mon espace"], ["cloture", "Clôtures"], ["commandes", "Ventes & livraisons"], ["commissions", "Commissions"], ["stock", "Stock"], ["tresorerie", "Trésorerie"], ["engagements", "Engagements"], ["consignes", "Consignes"], ["rapports", "Rapports"], ["activite", "Activité"], ["equipe", "Équipe"]];
+  if (isVendeur()) return [["accueil", "Mon espace"], ["ventes", "Mes ventes"], ["produits", "Produits"], ["compte", "Mon compte"]];
+  if (isLivreur()) return [["accueil", "Mon espace"], ["courses", "Courses disponibles"], ["mescourses", "Mes courses"], ["compte", "Mon compte"]];
   return [];
 }
 function currentView() { const h = (location.hash || "").replace("#", ""); return views().some(v => v[0] === h) ? h : "accueil"; }
@@ -642,7 +647,7 @@ function tabCounts() {
   const t = today(), c = {};
   if (isPdg()) { c.cloture = D.aValider.length; c.tresorerie = D.envoisAttente.length; c.stock = D.reapDemandes.length; c.consignes = D.consRetard.length; c.equipe = S.demandes.length; }
   else if (isCoordo()) { c.cloture = (S.journal.some(j => j.date === t) ? 0 : 1) + D.aRevoir.length; c.consignes = D.consAFaire.length; c.stock = D.reapEnvoyes.length; if (may("equipe")) c.equipe = S.demandes.length; }
-  if (isPdg() || isCoordo()) c.commandes = S.commandes.filter(x => x.statut === "nouvelle").length;
+  if (isPdg() || isCoordo()) { c.commandes = S.commandes.filter(x => x.statut === "nouvelle").length; c.commissions = retraitsAPayer().length; }
   if (isVendeur()) c.ventes = mesCmd().filter(x => x.statut === "echec").length;
   if (isLivreur()) { c.courses = dispo().length; c.mescourses = mesCourses().filter(enCours).length; }
   return c;
@@ -683,6 +688,8 @@ function pageHead(cur) {
     produits: ["Produits", "Ce que tu peux vendre, au prix conseillé"],
     courses: ["Courses disponibles", "Les ventes à livrer : prends-en une"],
     mescourses: ["Mes courses", "Les courses que tu as prises"],
+    commissions: ["Commissions", "Commissions des vendeurs, gains des livreurs et retraits"],
+    compte: ["Mon compte", isVendeur() ? "Tes commissions et tes retraits" : "Tes gains de livraison et tes retraits"],
   };
   let h;
   if (cur === "accueil") {
@@ -724,7 +731,7 @@ function render() {
   const ready = (isVendeur() || isLivreur()) ? S.cmdLoaded : S.configLoaded && COLLS.every(c => S.loaded.has(c));
   if (!ready) { v.innerHTML = `<div class="center"><span class="logo-card"><img src="${LOGO}" alt="URS Store"></span><p>Chargement des données…</p>${S.stale ? '<p class="stale">Les données ne répondent pas encore. Vérifiez la connexion internet.</p>' : ""}</div>`; return; }
   const cur = currentView();
-  const map = { accueil: isPdg() ? viewPdg : isCoordo() ? viewCoordo : isVendeur() ? viewVendeur : viewLivreur, commandes: viewCommandes, ventes: viewVentes, produits: viewProduitsVendeur, courses: viewCourses, mescourses: viewMesCourses, cloture: viewCloture, stock: viewStock, tresorerie: viewTresorerie, engagements: viewEngagements, consignes: viewConsignes, rapports: viewRapports, activite: viewActivite, equipe: viewEquipe, parametres: viewParametres };
+  const map = { accueil: isPdg() ? viewPdg : isCoordo() ? viewCoordo : isVendeur() ? viewVendeur : viewLivreur, commandes: viewCommandes, commissions: viewCommissions, compte: viewCompte, ventes: viewVentes, produits: viewProduitsVendeur, courses: viewCourses, mescourses: viewMesCourses, cloture: viewCloture, stock: viewStock, tresorerie: viewTresorerie, engagements: viewEngagements, consignes: viewConsignes, rapports: viewRapports, activite: viewActivite, equipe: viewEquipe, parametres: viewParametres };
   v.innerHTML = (S.stale ? `<p class="stale">Connexion lente : les chiffres affichés peuvent ne pas être à jour.</p>` : "") + pageHead(cur) + map[cur]();
   if (cur === "rapports") drawReportChart();
   const ids = [];
@@ -944,6 +951,7 @@ function todoPdgHtml() {
       <span class="m">${esc(r.note || "")}${r.note ? " · " : ""}restant au Mali : ${(D.stock.get(r.produitId) ?? 0).toLocaleString("fr-FR")} · ${esc(who(r.par))}</span>
       <div class="row-actions full"><button class="btn primary small" data-act="reap-envoi" data-id="${esc(r.id)}">Marquer envoyé</button><button class="btn ghost small" data-act="reap-refus" data-id="${esc(r.id)}">Refuser</button></div></div>`);
   for (const c of D.consRetard) items.push(`<div class="item clickable" data-act="go-consignes"><span class="t">Consigne en retard : ${esc(c.texte)}</span><span class="r"><span class="chip bad">Échéance ${esc(dNum(c.echeance))}</span></span></div>`);
+  for (const r of retraitsAPayer()) items.push(`<div class="item clickable" data-act="go-commissions"><span class="t">Retrait demandé : ${esc(who(r.membre_id))}</span><span class="r">${F(r.montant)}</span><span class="m">${esc(r.moyen)}${r.numero_tel ? " · " + esc(r.numero_tel) : ""} · ${esc(rel(r.demande_le))}</span></div>`);
   for (const c of cmdRetard()) items.push(`<div class="item clickable" data-act="open-cmd" data-id="${esc(c.id)}"><span class="t">Vente #${esc(c.numero)} sans livreur : ${esc(clientNom(c))}</span><span class="r"><span class="chip bad">${Math.round(minutesDepuis(c.cree_le))} min</span></span><span class="m">${esc(c.destination)} · ${F(totalCmd(c))} · attribue un livreur ou transfère à U-Express</span></div>`);
   const pendingInsc = S.demandes.filter(d => !(S.config.coordos || {})[d.id]);
   for (const d of pendingInsc) items.push(`<div class="item"><span class="t">Inscription ${esc((ROLE_LBL[d.role_demande] || "Coordonnateur").toLowerCase())} : ${esc(d.nom || who(d.id))}</span><span class="r">${esc(rel(d.le))}</span><span class="m">${esc([d.fonction, d.tel, d.ville].filter(Boolean).join(" · "))}</span><div class="row-actions full"><button class="btn primary small" data-act="name-coordo" data-id="${esc(d.id)}">Valider comme ${esc((ROLE_LBL[d.role_demande] || "Coordonnateur").toLowerCase())}</button><button class="btn ghost small" data-act="drop-demande" data-id="${esc(d.id)}">Refuser</button></div></div>`);
@@ -1012,6 +1020,7 @@ function viewCoordo() {
   for (const j of D.aRevoir) { const v = valOf(j).v || {}; tasks.push(`<div class="step"><div class="st"><span class="ck">!</span><span>Clôture du ${esc(dShort(j.date))} à revoir${v.commentaire ? ` : « ${esc(v.commentaire)} »` : ""}</span></div><button class="btn small" data-act="open-cloture" data-date="${esc(j.date)}">Corriger</button></div>`); }
   for (const c of D.consAFaire) tasks.push(`<div class="step"><div class="st"><span class="ck"></span><span>${esc(c.texte)}${c.echeance ? ` <span class="chip ${c.echeance < t ? "bad" : "muted"}">${c.echeance < t ? "En retard · " : "Avant le "}${esc(dNum(c.echeance))}</span>` : ""}</span></div><button class="btn small" data-act="cons-fait" data-id="${esc(c.id)}">C'est fait</button></div>`);
   for (const r of D.reapEnvoyes) tasks.push(`<div class="step"><div class="st"><span class="ck"></span><span>Stock envoyé par le PDG : ${num(r.qteEnvoyee || r.qte).toLocaleString("fr-FR")} × ${esc(r.nom)}. Confirme à la réception.</span></div><button class="btn primary small" data-act="reap-recu" data-id="${esc(r.id)}">Confirmer la réception</button></div>`);
+  if (may("retraits")) for (const r of retraitsAPayer()) tasks.push(`<div class="step"><div class="st"><span class="ck">F</span><span>Retrait à payer : <b>${esc(who(r.membre_id))}</b> · ${F(r.montant)} · ${esc(r.moyen)}${r.numero_tel ? " " + esc(r.numero_tel) : ""}</span></div><button class="btn primary small" data-act="retrait-payer" data-id="${esc(r.id)}">Payer</button></div>`);
   for (const c of cmdRetard()) tasks.push(`<div class="step"><div class="st"><span class="ck">!</span><span>Vente #${esc(c.numero)} sans livreur depuis ${Math.round(minutesDepuis(c.cree_le))} min · ${esc(c.destination)}</span></div><button class="btn primary small" data-act="open-cmd" data-id="${esc(c.id)}">Attribuer</button></div>`);
   if (may("equipe")) for (const d of S.demandes) tasks.push(`<div class="step"><div class="st"><span class="ck">+</span><span>Inscription à valider (${esc((ROLE_LBL[d.role_demande] || "Coordonnateur").toLowerCase())}) : <b>${esc(d.nom || "Nouveau membre")}</b>${d.tel ? " · " + esc(d.tel) : ""}</span></div><div class="row-actions"><button class="btn primary small" data-act="name-coordo" data-id="${esc(d.id)}">Valider</button><button class="btn ghost small" data-act="drop-demande" data-id="${esc(d.id)}">Refuser</button></div></div>`);
   for (const tr of D.envoisRefuses.filter(x => x.date >= addDays(t, -14))) { const c = confOf(tr) || {}; tasks.push(`<div class="step"><div class="st"><span class="ck">!</span><span>Le PDG n'a pas reçu l'envoi de ${F(tr.montant)} du ${esc(dNum(tr.date))}${c.commentaire ? ` : « ${esc(c.commentaire)} »` : ""}</span></div></div>`); }
@@ -1061,7 +1070,7 @@ function cmdCard(c) {
   const msgs = Array.isArray(c.messages) ? c.messages.length : 0;
   return `<div class="item clickable" data-act="open-cmd" data-id="${esc(c.id)}">
     <span class="t">#${esc(c.numero)} · ${esc(clientNom(c))}</span><span class="r">${F(totalCmd(c))}<small>${esc(rel(c.cree_le))}</small></span>
-    <div class="full row-actions">${cmdChip(c)}${msgs ? `<span class="chip muted">${msgs} message${msgs > 1 ? "s" : ""}</span>` : ""}</div>
+    <div class="full row-actions">${cmdChip(c)}${isVendeur() && gainDe(c.id, "commission") ? `<span class="chip good">Commission ${F(gainDe(c.id, "commission").montant)}</span>` : ""}${msgs ? `<span class="chip muted">${msgs} message${msgs > 1 ? "s" : ""}</span>` : ""}</div>
     <span class="m full">${esc(c.client_tel)} · ${esc([c.destination, c.ville].filter(Boolean).join(", "))}<br>${esc(articlesTxt(c))}${!isVendeur() ? " · vendeur : " + esc(who(c.vendeur_id)) : ""}${c.livreur_id && !isLivreur() ? " · livreur : " + esc(who(c.livreur_id)) : ""}</span>
     ${quick.length ? `<div class="row-actions full">${quick.join("")}</div>` : ""}
   </div>`;
@@ -1092,6 +1101,7 @@ function viewVendeur() {
       ${kpi("", "En livraison", m.filter(enCours).length, "Prises par un livreur")}
       ${kpi("gold", "Livrées aujourd'hui", liv.length, F(liv.reduce((s, c) => s + num(c.montant), 0)))}
     </section>
+    ${compteResumeHtml()}
     ${m.filter(c => c.statut === "echec").length ? `<div class="banner bad"><p><strong>${plural(m.filter(c => c.statut === "echec").length, "vente en échec", "ventes en échec")}</strong>Ouvre-les pour voir le motif et relancer.</p><button class="btn small" data-act="cmd-filter" data-k="echec" data-go="ventes">Voir</button></div>` : ""}
     <section class="card"><div class="card-h"><h2>Mes dernières ventes</h2><a class="btn ghost small" href="#ventes">Toutes mes ventes</a></div>${cmdList(m.slice(0, 6), "Aucune vente pour l'instant.")}</section>`;
 }
@@ -1100,8 +1110,8 @@ function viewVentes() {
   return `<section class="card"><div class="card-h">${pillsCmd()}<button class="btn primary small" data-act="new-vente">+ Nouvelle vente</button></div>${cmdList(l, "Aucune vente dans cette liste.")}</section>`;
 }
 function viewProduitsVendeur() {
-  return `<section class="card"><div class="card-h"><div><h2>Produits disponibles</h2><p>Prix de vente conseillés. Touche « Vendre » pour enregistrer une vente.</p></div></div>
-    ${S.catalogue.length ? `<div class="list">${S.catalogue.map(p => `<div class="item"><span class="t">${esc(p.nom)}</span><span class="r">${F(p.prix)}</span><div class="row-actions full"><button class="btn small" data-act="new-vente" data-id="${esc(p.id)}">Vendre</button></div></div>`).join("")}</div>` : `<p class="empty">Aucun produit : le coordonnateur doit d'abord les ajouter dans Stock.</p>`}</section>`;
+  return `<section class="card"><div class="card-h"><div><h2>Produits disponibles</h2><p>Prix de vente conseillé et ta commission. Touche « Vendre » pour enregistrer une vente.</p></div></div>
+    ${S.catalogue.length ? `<div class="list">${S.catalogue.map(p => `<div class="item"><span class="t">${esc(p.nom)}</span><span class="r">${F(p.prix)}</span><span class="m full">Ta commission : <b>${F(p.commission)}</b> par unité, quand la vente est livrée</span><div class="row-actions full"><button class="btn small" data-act="new-vente" data-id="${esc(p.id)}">Vendre</button></div></div>`).join("")}</div>` : `<p class="empty">Aucun produit : le coordonnateur doit d'abord les ajouter dans Stock.</p>`}</section>`;
 }
 
 /* ---- Livreur ---- */
@@ -1115,7 +1125,8 @@ function viewLivreur() {
       ${kpi(mc.filter(c => c.statut === "echec" && estAujourdhui(c.maj_le)).length ? "bad" : "", "Échecs aujourd'hui", mc.filter(c => c.statut === "echec" && estAujourdhui(c.maj_le)).length, "Avec motif")}
     </section>
     <section class="card todo"><div class="card-h"><h2>Courses disponibles</h2><a class="btn ghost small" href="#courses">Tout voir</a></div>${cmdList(d.slice(0, 5), "Aucune course disponible. Les nouvelles ventes apparaissent ici toutes seules.")}</section>
-    <section class="card"><div class="card-h"><h2>Mes courses en cours</h2><a class="btn ghost small" href="#mescourses">Mes courses</a></div>${cmdList(cours, "Aucune course en cours.")}</section>`;
+    <section class="card"><div class="card-h"><h2>Mes courses en cours</h2><a class="btn ghost small" href="#mescourses">Mes courses</a></div>${cmdList(cours, "Aucune course en cours.")}</section>
+    ${compteResumeHtml()}`;
 }
 function viewCourses() {
   return `<section class="card todo"><div class="card-h"><div><h2>À prendre</h2><p>Les plus anciennes d'abord. Après ${DELAI} minutes sans livreur, une course est signalée en retard.</p></div></div>${cmdList(dispo(), "Aucune course disponible pour l'instant.")}</section>`;
@@ -1183,6 +1194,7 @@ function openCmd(id) {
     </tbody></table></div>
     ${c.note ? `<div class="quote">Note du vendeur : ${esc(c.note)}</div>` : ""}
     ${c.motif ? `<div class="quote">Motif : ${esc(c.motif)}</div>` : ""}
+    ${gainsCmdHtml(c)}
     <p class="small" style="margin:0">Vendeur : ${esc(who(c.vendeur_id))}${(S.membres.find(m => m.id === c.vendeur_id) || {}).tel ? ` · <a href="${esc(telHref(S.membres.find(m => m.id === c.vendeur_id).tel))}">${esc(S.membres.find(m => m.id === c.vendeur_id).tel)}</a>` : ""}${c.livreur_id ? ` · Livreur : ${esc(who(c.livreur_id))}${(S.membres.find(m => m.id === c.livreur_id) || {}).tel ? ` · <a href="${esc(telHref(S.membres.find(m => m.id === c.livreur_id).tel))}">${esc(S.membres.find(m => m.id === c.livreur_id).tel)}</a>` : ""}` : ""}</p>
     ${acts.length ? `<fieldset class="fs"><legend>Actions</legend><div class="row-actions">${acts.join("")}</div>
       ${acts.some(a => /echec|annuler/.test(a)) ? `<label class="field"><span>Motif (obligatoire pour un échec)</span><input type="text" id="cmdMotif" placeholder="Ex. client injoignable, refus, adresse introuvable"></label>` : ""}
@@ -1227,7 +1239,8 @@ function renderVf() {
 function updateVf() {
   if (!VF) return;
   const t = VF.lignes.reduce((s, l) => s + num(l.qte) * num(l.prix), 0), fr = num(val("vFrais"));
-  const sm = $("#vSum"); if (sm) sm.innerHTML = `<div><span>Produits</span><span>${F(t)}</span></div><div><span>Livraison</span><span>${F(fr)}</span></div><div class="big"><span>À encaisser par le livreur</span><span>${F(t + fr)}</span></div>`;
+  const com = VF.lignes.reduce((s, l) => s + num(l.qte) * num((S.catalogue.find(p => p.id === l.produitId) || {}).commission), 0);
+  const sm = $("#vSum"); if (sm) sm.innerHTML = `<div><span>Produits</span><span>${F(t)}</span></div><div><span>Livraison</span><span>${F(fr)}</span></div><div class="big"><span>À encaisser par le livreur</span><span>${F(t + fr)}</span></div>${isVendeur() && com > 0 ? `<div><span>Ta commission (quand la vente est livrée)</span><span>${F(com)}</span></div>` : ""}`;
 }
 function onVfInput(ev) {
   if (!VF) return;
@@ -1259,8 +1272,17 @@ let cmdStarted = false;
 async function loadCommandes() {
   if (!S.sb || !S.session) return;
   try {
-    const { data, error } = await S.sb.from("commandes").select("*").order("cree_le", { ascending: false }).limit(500);
+    const [rc, rg, rr, rs] = await Promise.all([
+      S.sb.from("commandes").select("*").order("cree_le", { ascending: false }).limit(500),
+      S.sb.from("gains").select("*").order("cree_le", { ascending: false }).limit(400),
+      S.sb.from("retraits").select("*").order("demande_le", { ascending: false }).limit(300),
+      S.sb.rpc("soldes"),
+    ]);
+    const { data, error } = rc;
     if (error) throw error;
+    if (!rg.error) S.gains = rg.data || [];
+    if (!rr.error) S.retraits = rr.data || [];
+    if (!rs.error) S.soldes = new Map((rs.data || []).map(x => [x.membre_id, x]));
     const avant = new Set(S.commandes.map(c => c.id));
     S.commandes = data || [];
     if (isLivreur() && S.cmdLoaded) {
@@ -1274,12 +1296,19 @@ async function loadCommandes() {
 async function loadCatalogue() {
   if (!S.sb) return;
   try { const { data, error } = await S.sb.rpc("catalogue"); if (!error) S.catalogue = data || []; } catch (e) { /* rien */ }
+  if (isLivreur() || isVendeur()) { try { const { data, error } = await S.sb.rpc("tarif_livraison"); if (!error && data != null) S.tarif = num(data); } catch (e) { /* rien */ } }
   scheduleRender();
 }
 function startCommandes() {
   cmdStarted = true; loadCommandes(); loadCatalogue();
-  try { S.sb.channel("cmd-sync").on("postgres_changes", { event: "*", schema: "public", table: "commandes" }, () => { clearTimeout(S._cmdT); S._cmdT = setTimeout(loadCommandes, 300); }).subscribe(); } catch (e) { /* rafraîchissement régulier */ }
-  setInterval(loadCommandes, 15000);
+  const bump = () => { clearTimeout(S._cmdT); S._cmdT = setTimeout(loadCommandes, 300); };
+  try {
+    let ch = S.sb.channel("cmd-sync");
+    for (const table of ["commandes", "gains", "retraits"]) ch = ch.on("postgres_changes", { event: "*", schema: "public", table }, bump);
+    ch.subscribe(st => { S.rtOk = st === "SUBSCRIBED"; });
+  } catch (e) { /* rafraîchissement régulier */ }
+  // Temps réel en marche : simple contrôle toutes les 60 s ; sinon toutes les 15 s.
+  let tick = 0; setInterval(() => { tick++; if (!S.rtOk || tick % 4 === 0) loadCommandes(); }, 15000);
   setInterval(loadCatalogue, 120000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { loadCommandes(); loadCatalogue(); } });
 }
@@ -1300,6 +1329,151 @@ function importLivrees() {
   renderCfRows(); updateCf(); toast(n ? "Ventes livrées ajoutées : vérifie avant d'enregistrer" : "Aucune vente livrée ce jour");
 }
 
+/* ===================== Commissions, gains des livreurs, retraits ===================== */
+const MOYENS = ["Orange Money", "Moov Money", "Wave", "Sama Money", "Espèces"];
+const RST = { demande: ["warn", "Demande en cours"], paye: ["good", "Payé"], refuse: ["bad", "Refusé"], annule: ["muted", "Annulé"] };
+const GST = { attente: ["warn", "En attente de livraison"], acquis: ["good", "Acquise"], annule: ["muted", "Annulée"] };
+const tarifLiv = () => num(isPdg() || isCoordo() ? (S.config.tarifLivraison ?? 1000) : (S.tarif ?? 1000)) || 0;
+// Soldes calculés par la base (toutes les ventes, pas seulement celles affichées)
+function soldeDe(id) {
+  const x = S.soldes.get(id) || {};
+  return { acquis: num(x.acquis), attente: num(x.attente), paye: num(x.paye), enCours: num(x.en_cours), dispo: num(x.disponible), nbLiv: num(x.nb_livraisons) };
+}
+function gainsCmdHtml(c) {
+  const gc = gainDe(c.id, "commission"), gl = gainDe(c.id, "livraison"), parts = [];
+  if (gc && (isVendeur() || isPdg() || isCoordo())) parts.push(`${isVendeur() ? "Ta commission" : "Commission du vendeur"} : <b>${F(gc.montant)}</b> ${gChip(gc)}`);
+  if (isLivreur()) parts.push(gl ? `Ton gain : <b>${F(gl.montant)}</b> ${gChip(gl)}` : ["livree", "annulee"].includes(c.statut) ? "" : `Ton gain à la livraison : <b>${F(tarifLiv())}</b>`);
+  else if (gl && (isPdg() || isCoordo())) parts.push(`Livreur : <b>${F(gl.montant)}</b> ${gChip(gl)}`);
+  const ok = parts.filter(Boolean);
+  return ok.length ? `<div class="row-actions small">${ok.join(" · ")}</div>` : "";
+}
+const gainDe = (cmdId, type) => S.gains.find(g => g.commande_id === cmdId && g.type === type);
+const retraitsDe = id => S.retraits.filter(r => r.membre_id === id).sort((a, b) => (a.demande_le < b.demande_le ? 1 : -1));
+const retraitsAPayer = () => S.retraits.filter(r => r.statut === "demande").sort((a, b) => (a.demande_le < b.demande_le ? -1 : 1));
+const rChip = r => `<span class="chip ${RST[r.statut][0]}"><span class="dot"></span>${RST[r.statut][1]}</span>`;
+const gChip = g => `<span class="chip ${GST[g.statut][0]}"><span class="dot"></span>${g.type === "livraison" ? (g.statut === "acquis" ? "Gagné" : GST[g.statut][1]) : GST[g.statut][1]}</span>`;
+const cmdNum = id => { const c = S.commandes.find(x => x.id === id); return c ? "#" + c.numero + " · " + clientNom(c) : "Vente"; };
+
+/* ---- Résumé « Mon compte » sur l'accueil du vendeur et du livreur ---- */
+function compteResumeHtml() {
+  const s = soldeDe(S.me), enCoursR = S.retraits.find(r => r.membre_id === S.me && r.statut === "demande");
+  return `<section class="card"><div class="card-h"><div><h2>${isVendeur() ? "Mes commissions" : "Mes gains"}</h2><p>${isVendeur() ? "Chaque vente livrée te rapporte la commission de ses produits." : `Chaque livraison validée te rapporte ${F(tarifLiv())}.`}</p></div><a class="btn ghost small" href="#compte">Mon compte</a></div>
+    <div class="mini">
+      <div><span class="l">Disponible</span><span class="v">${F(s.dispo)}</span></div>
+      ${isVendeur() ? `<div><span class="l">En attente de livraison</span><span class="v">${F(s.attente)}</span></div>` : `<div><span class="l">Livraisons payées</span><span class="v">${s.nbLiv}</span></div>`}
+      <div><span class="l">Déjà retiré</span><span class="v">${F(s.paye)}</span></div>
+      <div><span class="l">Retrait demandé</span><span class="v">${enCoursR ? F(enCoursR.montant) : "—"}</span></div>
+    </div>
+    ${!enCoursR && s.dispo > 0 ? `<button class="btn primary small" data-act="new-retrait" style="justify-self:start">Demander un retrait</button>` : ""}</section>`;
+}
+
+/* ---- Mon compte (vendeur et livreur) ---- */
+function viewCompte() {
+  const s = soldeDe(S.me), mesR = retraitsDe(S.me), enCoursR = mesR.find(r => r.statut === "demande");
+  const mesG = S.gains.filter(g => g.membre_id === S.me).sort((a, b) => (String(a.acquis_le || a.cree_le) < String(b.acquis_le || b.cree_le) ? 1 : -1));
+  return `<section class="kpis k4">
+      ${kpi("lead", "Disponible", F(s.dispo), "Ce que tu peux retirer")}
+      ${isVendeur() ? kpi(s.attente ? "warn" : "", "En attente de livraison", F(s.attente), "Acquis dès que la vente est livrée") : kpi("", "Livraisons payées", s.nbLiv, F(tarifLiv()) + " par livraison validée")}
+      ${kpi("gold", "Déjà retiré", F(s.paye), "Payé par le coordonnateur")}
+      ${kpi(enCoursR ? "warn" : "", "Retrait demandé", enCoursR ? F(enCoursR.montant) : "—", enCoursR ? "En attente de paiement" : "Aucune demande en cours")}
+    </section>
+    <section class="card todo"><div class="card-h"><div><h2>Retrait</h2><p>Tu demandes, le coordonnateur ou le super admin te paie, puis la demande passe en « Payé ».</p></div>${!enCoursR && s.dispo > 0 ? `<button class="btn primary" data-act="new-retrait">Demander un retrait</button>` : ""}</div>
+      ${enCoursR ? `<div class="list"><div class="item"><span class="t">Retrait #${esc(enCoursR.numero)} · ${F(enCoursR.montant)}</span><span class="r">${rChip(enCoursR)}</span><span class="m">${esc(enCoursR.moyen)}${enCoursR.numero_tel ? " · " + esc(enCoursR.numero_tel) : ""} · demandé ${esc(rel(enCoursR.demande_le))}</span><div class="row-actions full"><button class="btn ghost small" data-act="cancel-retrait" data-id="${esc(enCoursR.id)}">Annuler ma demande</button></div></div></div>`
+        : s.dispo > 0 ? "" : `<p class="empty">${isVendeur() ? "Rien à retirer pour l'instant : tes commissions arrivent quand tes ventes sont livrées." : "Rien à retirer pour l'instant : tes gains arrivent à chaque livraison validée."}</p>`}
+    </section>
+    <section class="card"><div class="card-h"><h2>Mes retraits</h2></div>
+      ${mesR.length ? `<div class="list">${mesR.map(r => `<div class="item"><span class="t">Retrait #${esc(r.numero)} · ${F(r.montant)}</span><span class="r">${rChip(r)}</span><span class="m">${esc(r.moyen)}${r.numero_tel ? " · " + esc(r.numero_tel) : ""} · demandé ${esc(tShort(r.demande_le))}${r.traite_le && r.statut !== "annule" ? ` · ${r.statut === "paye" ? "payé" : "traité"} par ${esc(who(r.traite_par))} ${esc(tShort(r.traite_le))}` : ""}${r.reference ? " · réf. " + esc(r.reference) : ""}</span>${r.motif ? `<div class="quote">Motif : ${esc(r.motif)}</div>` : ""}</div>`).join("")}</div>` : `<p class="empty">Aucun retrait pour l'instant.</p>`}
+    </section>
+    <section class="card"><div class="card-h"><h2>${isVendeur() ? "Mes commissions par vente" : "Mes gains par livraison"}</h2></div>
+      ${mesG.length ? `<div class="list">${mesG.map(g => `<div class="item clickable" data-act="open-cmd" data-id="${esc(g.commande_id)}"><span class="t">${esc(cmdNum(g.commande_id))}</span><span class="r">${F(g.montant)}<small>${esc(rel(g.acquis_le || g.cree_le))}</small></span><div class="full row-actions">${gChip(g)}</div>${g.type === "commission" && Array.isArray(g.details) && g.details.length ? `<span class="m full">${esc(g.details.map(d => `${num(d.qte)} × ${d.nom} (${F(d.commission)})`).join(", "))}</span>` : ""}</div>`).join("")}</div>` : `<p class="empty">${isVendeur() ? "Aucune commission pour l'instant." : "Aucune livraison payée pour l'instant."}</p>`}
+    </section>`;
+}
+function openRetrait() {
+  const s = soldeDe(S.me);
+  if (s.dispo <= 0) return toast("Rien à retirer pour l'instant", true);
+  openSheet("Demander un retrait", `
+    <div class="mini" style="grid-template-columns:1fr 1fr"><div><span class="l">Disponible</span><span class="v">${F(s.dispo)}</span></div><div><span class="l">Déjà retiré</span><span class="v">${F(s.paye)}</span></div></div>
+    <label class="field"><span>Montant à retirer (FCFA)</span><input type="number" inputmode="numeric" min="1" step="1" max="${s.dispo}" id="rtMontant" value="${s.dispo}"></label>
+    <div class="f2"><label class="field"><span>Moyen de paiement</span><select id="rtMoyen">${MOYENS.map(m => `<option>${esc(m)}</option>`).join("")}</select></label>
+      <label class="field"><span>Numéro qui reçoit l'argent</span><input type="tel" id="rtNumero" value="${esc((S.moi && S.moi.tel) || "")}"></label></div>
+    <p class="small" style="margin:0">Le coordonnateur ou le super admin te paie, puis ta demande passe en « Payé ». Une seule demande à la fois.</p>
+    <p class="err" id="sheetErr"></p>
+    <div class="row-actions"><button class="btn primary" data-act="retrait-save">Envoyer la demande</button></div>`);
+}
+async function saveRetrait() {
+  setErr("");
+  const m = num(val("rtMontant")), s = soldeDe(S.me), moyen = val("rtMoyen"), numero = val("rtNumero").trim();
+  if (!(m > 0) || !Number.isInteger(m)) return setErr("Entrez un montant entier supérieur à 0.");
+  if (m > s.dispo) return setErr("Le montant dépasse ton solde disponible (" + F(s.dispo) + ").");
+  if (moyen !== "Espèces" && numero.replace(/\D/g, "").length < 8) return setErr("Entrez le numéro qui reçoit l'argent.");
+  const b = $('[data-act="retrait-save"]'); if (b) b.disabled = true;
+  const { data, error } = await S.sb.rpc("demander_retrait", { p_montant: m, p_moyen: moyen, p_numero: numero });
+  if (error) { if (b) b.disabled = false; return setErr(error.message || "Demande impossible, réessayez."); }
+  closeSheet(); toast(`Demande de retrait #${data} envoyée : ${F(m)}`); await loadCommandes();
+}
+
+/* ---- Commissions (super admin et coordonnateur) ---- */
+function viewCommissions() {
+  const aPayer = retraitsAPayer(), peut = may("retraits");
+  const gens = S.membres.filter(m => ["vendeur", "livreur"].includes(m.role) || S.soldes.has(m.id)).map(m => ({ m, s: soldeDe(m.id) }))
+    .sort((a, b) => (a.m.role === b.m.role ? b.s.dispo - a.s.dispo : a.m.role === "vendeur" ? -1 : 1));
+  let totCom = 0, totAtt = 0, totLiv = 0, totPaye = 0;
+  for (const [id, x] of S.soldes) { const m = S.membres.find(y => y.id === id) || {}; if (m.role === "livreur") totLiv += num(x.acquis); else totCom += num(x.acquis); totAtt += num(x.attente); totPaye += num(x.paye); }
+  const recents = S.gains.slice().sort((a, b) => (String(a.acquis_le || a.cree_le) < String(b.acquis_le || b.cree_le) ? 1 : -1)).slice(0, 30);
+  const traites = S.retraits.filter(r => r.statut !== "demande").sort((a, b) => (String(a.traite_le || a.demande_le) < String(b.traite_le || b.demande_le) ? 1 : -1)).slice(0, 20);
+  return `<section class="kpis k4">
+      ${kpi(aPayer.length ? "warn" : "", "Retraits à payer", aPayer.length, F(aPayer.reduce((t, r) => t + num(r.montant), 0)))}
+      ${kpi("lead", "Commissions vendeurs", F(totCom), F(totAtt) + " en attente de livraison")}
+      ${kpi("", "Gains des livreurs", F(totLiv), F(tarifLiv()) + " par livraison validée")}
+      ${kpi("gold", "Déjà payé", F(totPaye), "Sorties de caisse « Commissions »")}
+    </section>
+    <section class="card todo"><div class="card-h"><div><h2>Demandes de retrait</h2><p>${peut ? "Paie la personne, puis marque « Payé » : la sortie de caisse s'enregistre toute seule." : "Le super admin ne t'a pas donné le droit de payer les retraits."}</p></div></div>
+      ${aPayer.length ? `<div class="list">${aPayer.map(r => { const m = S.membres.find(x => x.id === r.membre_id) || {}; const s = soldeDe(r.membre_id); return `<div class="item"><span class="t">${esc(m.nom || "Membre")} <span class="chip ${m.role === "livreur" ? "warn" : "good"}">${esc(ROLE_LBL[m.role] || "")}</span></span><span class="r">${F(r.montant)}<small>${esc(rel(r.demande_le))}</small></span>
+        <span class="m full">Retrait #${esc(r.numero)} · ${esc(r.moyen)}${r.numero_tel ? ` · <a href="${esc(telHref(r.numero_tel))}">${esc(r.numero_tel)}</a>` : ""} · acquis ${F(s.acquis)}, déjà payé ${F(s.paye)}</span>
+        ${peut ? `<div class="row-actions full"><button class="btn ok small" data-act="retrait-payer" data-id="${esc(r.id)}">Marquer payé</button><button class="btn ghost small" data-act="retrait-refuser" data-id="${esc(r.id)}">Refuser</button></div>` : ""}</div>`; }).join("")}</div>` : `<p class="empty">Aucune demande de retrait en attente.</p>`}
+    </section>
+    <section class="card"><div class="card-h"><div><h2>Soldes des vendeurs et livreurs</h2><p>Commission par produit : dans Stock, à l'ajout ou à la modification du produit.${isPdg() ? " Paiement par livraison : dans Paramètres." : ""}</p></div>${isPdg() ? `<button class="btn small" data-act="edit-tarif">Paiement par livraison : ${F(tarifLiv())}</button>` : ""}</div>
+      ${gens.length ? `<div class="tbl-wrap"><table><thead><tr><th>Nom</th><th class="n">Acquis</th><th class="n">En attente</th><th class="n">Payé</th><th class="n">À payer</th></tr></thead><tbody>${gens.map(({ m, s }) => `<tr><td>${esc(m.nom || "Membre")}<br><small class="muted">${esc(ROLE_LBL[m.role] || m.role)}${m.role === "livreur" ? " · " + plural(s.nbLiv, "livraison") : ""}</small></td><td class="n">${F(s.acquis)}</td><td class="n">${F(s.attente)}</td><td class="n">${F(s.paye)}</td><td class="n"><b>${F(s.dispo + s.enCours)}</b></td></tr>`).join("")}</tbody></table></div>` : `<p class="empty">Aucun vendeur ni livreur pour l'instant.</p>`}
+    </section>
+    <div class="grid2">
+      <section class="card" style="align-content:start"><div class="card-h"><h2>Dernières commissions et livraisons</h2></div>
+        ${recents.length ? `<div class="list">${recents.map(g => `<div class="item clickable" data-act="open-cmd" data-id="${esc(g.commande_id)}"><span class="t">${esc(who(g.membre_id))} · ${g.type === "livraison" ? "livraison" : "commission"}</span><span class="r">${F(g.montant)}<small>${esc(rel(g.acquis_le || g.cree_le))}</small></span><span class="m">${esc(cmdNum(g.commande_id))}</span><div class="full row-actions">${gChip(g)}</div></div>`).join("")}</div>` : `<p class="empty">Rien pour l'instant.</p>`}
+      </section>
+      <section class="card" style="align-content:start"><div class="card-h"><h2>Retraits traités</h2></div>
+        ${traites.length ? `<div class="list">${traites.map(r => `<div class="item"><span class="t">${esc(who(r.membre_id))} · #${esc(r.numero)}</span><span class="r">${F(r.montant)}</span><span class="m">${esc(r.moyen)} · ${r.statut === "annule" ? "annulé par la personne" : (r.statut === "paye" ? "payé" : "refusé") + " par " + esc(who(r.traite_par))} · ${esc(tShort(r.traite_le || r.demande_le))}${r.reference ? " · réf. " + esc(r.reference) : ""}</span><div class="full row-actions">${rChip(r)}</div>${r.motif ? `<div class="quote">Motif : ${esc(r.motif)}</div>` : ""}</div>`).join("")}</div>` : `<p class="empty">Aucun retrait traité pour l'instant.</p>`}
+      </section>
+    </div>`;
+}
+function openPayer(id) {
+  const r = S.retraits.find(x => x.id === id); if (!r) return;
+  openSheet(`Payer le retrait #${r.numero}`, `
+    <div class="mini" style="grid-template-columns:1fr 1fr"><div><span class="l">Bénéficiaire</span><span class="v">${esc(who(r.membre_id))}</span></div><div><span class="l">Montant</span><span class="v">${F(r.montant)}</span></div><div><span class="l">Moyen</span><span class="v">${esc(r.moyen)}</span></div><div><span class="l">Numéro</span><span class="v">${esc(r.numero_tel || "—")}</span></div></div>
+    <label class="field"><span>Référence de la transaction (facultatif)</span><input type="text" id="rpRef" placeholder="Ex. numéro de la transaction Orange Money"></label>
+    <p class="small" style="margin:0">En validant, une sortie de caisse de ${F(r.montant)} (catégorie « Commissions ») est enregistrée dans Trésorerie.</p>
+    <p class="err" id="sheetErr"></p>
+    <div class="row-actions"><button class="btn ok" data-act="retrait-payer-save" data-id="${esc(id)}">J'ai payé ${F(r.montant)}</button></div>`);
+}
+function openRefuser(id) {
+  const r = S.retraits.find(x => x.id === id); if (!r) return;
+  openSheet(`Refuser le retrait #${r.numero}`, `
+    <p style="margin:0">${esc(who(r.membre_id))} · ${F(r.montant)}</p>
+    <label class="field"><span>Motif (la personne le verra)</span><textarea id="rrMotif" placeholder="Ex. passe au bureau demain pour être payé en espèces"></textarea></label>
+    <p class="err" id="sheetErr"></p>
+    <div class="row-actions"><button class="btn danger" data-act="retrait-refuser-save" data-id="${esc(id)}">Refuser la demande</button></div>`);
+}
+async function traiterRetrait(id, decision, texte, ref) {
+  const { error } = await S.sb.rpc("traiter_retrait", { p_id: id, p_decision: decision, p_texte: texte || "", p_reference: ref || "" });
+  if (error) { setErr(error.message || "Impossible"); toast(error.message || "Impossible", true); await loadCommandes(); return false; }
+  await loadCommandes(); return true;
+}
+function openTarif() {
+  openSheet("Paiement par livraison", `
+    <label class="field"><span>Montant payé au livreur pour chaque livraison validée (FCFA)</span><input type="number" inputmode="numeric" min="0" step="1" id="tfMontant" value="${esc(tarifLiv())}"></label>
+    <p class="small" style="margin:0">S'applique aux prochaines livraisons. Les livraisons déjà validées gardent leur montant.</p>
+    <p class="err" id="sheetErr"></p>
+    <div class="row-actions"><button class="btn primary" data-act="tarif-save">Enregistrer</button></div>`);
+}
+
 /* ===================== Activité ===================== */
 function allEvents() {
   const ev = [];
@@ -1313,6 +1487,7 @@ function allEvents() {
   for (const e of S.engagements) ev.push({ k: "eng", le: e.le, par: e.par, t: `Engagement ajouté : ${e.libelle}`, r: "" });
   for (const m of S.membres) if (m.nomme_par && m.nomme_le && m.role !== "pdg") ev.push({ k: "equipe", le: m.nomme_le, par: m.nomme_par, t: ({ coordo: "Coordonnateur validé ou créé : ", vendeur: "Vendeur validé ou créé : ", livreur: "Livreur validé ou créé : ", refuse: "Inscription refusée : ", retire: "Accès retiré : ", attente: "Remis en attente : " }[m.role] || "Compte modifié : ") + (m.nom || "membre"), r: "", m: m.tel });
   for (const c of S.commandes) for (const h of (Array.isArray(c.historique) ? c.historique : [])) ev.push({ k: "ventes", le: h.le, par: h.par, t: `${ACT_LBL[h.action] || h.action} : #${c.numero} · ${clientNom(c)}`, r: h.action === "creer" ? F(c.montant) : h.action === "livree" ? F(totalCmd(c)) : "", m: h.texte || (h.livreur ? "livreur : " + who(h.livreur) : "") });
+  for (const r of S.retraits) { ev.push({ k: "commissions", le: r.demande_le, par: r.membre_id, t: `Retrait demandé : #${r.numero}`, r: F(r.montant), m: r.moyen }); if (r.traite_le && r.statut !== "annule") ev.push({ k: "commissions", le: r.traite_le, par: r.traite_par, t: `Retrait ${r.statut === "paye" ? "payé" : "refusé"} : ${who(r.membre_id)} #${r.numero}`, r: r.statut === "paye" ? "−" + F(r.montant) : "", m: r.motif || r.reference || "" }); }
   for (const c of S.consignes) { ev.push({ k: "cons", le: c.le, par: c.par, t: `Consigne donnée : ${c.texte}`, r: "" }); if (c.faitLe) ev.push({ k: "cons", le: c.faitLe, par: c.faitPar, t: `Consigne faite : ${c.texte}`, r: "", m: c.reponse }); }
   return ev.filter(e => e.le).sort((a, b) => (String(a.le) < String(b.le) ? 1 : -1));
 }
@@ -1322,7 +1497,7 @@ function evHtml(list) {
 }
 const activityHtml = n => evHtml(allEvents().slice(0, n));
 function viewActivite() {
-  const F_ = [["tout", "Tout"], ["clot", "Clôtures"], ["val", "Validations"], ["stock", "Stock"], ["caisse", "Argent"], ["eng", "Engagements"], ["cons", "Consignes"], ["ventes", "Ventes"], ["equipe", "Équipe"]];
+  const F_ = [["tout", "Tout"], ["clot", "Clôtures"], ["val", "Validations"], ["stock", "Stock"], ["caisse", "Argent"], ["eng", "Engagements"], ["cons", "Consignes"], ["ventes", "Ventes"], ["commissions", "Commissions"], ["equipe", "Équipe"]];
   const ev = allEvents().filter(e => (S.actFilter === "tout" || e.k === S.actFilter) && (S.actPerson === "tout" || e.par === S.actPerson)).slice(0, 300);
   const gens = S.membres.filter(m => ["pdg", "coordo", "vendeur", "livreur", "retire"].includes(m.role));
   const last = D.coordoIds.length ? lastCoordoActivity() : null;
@@ -1368,7 +1543,7 @@ function viewStock() {
   const sortKey = p => { const q = D.stock.get(p.id) || 0; return q <= 0 ? 0 : q <= num(p.seuil) ? 1 : 2; };
   act.sort((a, b) => sortKey(a) - sortKey(b) || String(a.nom).localeCompare(String(b.nom), "fr"));
   const row = p => { const q = D.stock.get(p.id) || 0; return `<div class="prod" data-act="open-prod" data-id="${esc(p.id)}" role="button" tabindex="0">
-      <div><div class="name"><span>${esc(p.nom)}</span>${stockChip(p, q)}</div><div class="meta">Gros ${F(p.prixAchat)} · Vente ${F(p.prixVente)} · Valeur ${F(Math.max(q, 0) * num(p.prixAchat))}</div></div>
+      <div><div class="name"><span>${esc(p.nom)}</span>${stockChip(p, q)}</div><div class="meta">Gros ${F(p.prixAchat)} · Vente ${F(p.prixVente)} · Commission ${F(p.commission)} · Valeur ${F(Math.max(q, 0) * num(p.prixAchat))}</div></div>
       <div class="qty">${q.toLocaleString("fr-FR")}<small>restant${Math.abs(q) > 1 ? "s" : ""}</small></div></div>`; };
   const reapActive = S.reappros.filter(r => r.statut === "demande" || r.statut === "envoye").sort((a, b) => (a.le < b.le ? 1 : -1));
   const reapDone = S.reappros.filter(r => r.statut === "recu" || r.statut === "refuse").sort((a, b) => (String(a.recuLe || a.le) < String(b.recuLe || b.le) ? 1 : -1)).slice(0, 6);
@@ -1510,6 +1685,7 @@ function viewRapports() {
           ${tr("− Autres charges (clôtures)", F(A.chJ))}
           ${tr("− Loyer", F(A.loyer))}
           ${tr("− Salaires / commissions", F(A.salaire))}
+          ${tr("− Commissions vendeurs / livreurs", F(A.commission))}
           ${tr("− Achats / transport", F(A.achat))}
           ${tr("− Autres dépenses", F(A.autre_dep))}
           ${tr("= Bénéfice net", `<span class="${A.net < 0 ? "neg" : ""}">${F(A.net)}</span>`, "total", A.ca > 0 ? fmtPct(pct(A.net, A.ca)) : "")}
@@ -1669,6 +1845,10 @@ function viewParametres() {
       <div class="mini"><div><span class="l">CA visé</span><span class="v">${num(o.ca) ? F(o.ca) : "—"}</span></div><div><span class="l">Pub maximum</span><span class="v">${num(o.pubMax) ? num(o.pubMax) + " % du CA" : "—"}</span></div><div><span class="l">Bénéfice visé</span><span class="v">${num(o.benef) ? F(o.benef) : "—"}</span></div></div>
     </section>
     <section class="card">
+      <div class="card-h"><div><h2>Paiement des livreurs</h2><p>Montant fixe gagné par le livreur pour chaque livraison validée.</p></div><button class="btn small" data-act="edit-tarif">Modifier</button></div>
+      <div class="mini"><div><span class="l">Par livraison</span><span class="v">${F(tarifLiv())}</span></div><div><span class="l">Commissions vendeurs</span><span class="v">Par produit, dans Stock</span></div></div>
+    </section>
+    <section class="card">
       <div class="card-h"><div><h2>Caisse de départ</h2><p>L'argent présent au Mali le jour où l'app commence.</p></div><button class="btn small" data-act="edit-start">Modifier</button></div>
       <div class="mini"><div><span class="l">Solde de départ</span><span class="v">${F(S.config.soldeInitial)}</span></div><div><span class="l">Date de départ</span><span class="v">${S.config.dateDebut ? esc(dNum(S.config.dateDebut)) : "—"}</span></div></div>
     </section>
@@ -1815,6 +1995,7 @@ function openProduitForm(id) {
       <label class="field"><span>Prix de gros (achat)</span><input type="number" inputmode="numeric" min="0" step="1" id="pPa" value="${esc(p ? p.prixAchat : "")}"><small>Ce qu'il faut reverser au Burkina</small></label>
       <label class="field"><span>Prix de vente</span><input type="number" inputmode="numeric" min="0" step="1" id="pPv" value="${esc(p ? p.prixVente : "")}"></label>
     </div>
+    <label class="field"><span>Commission du vendeur (par unité)</span><input type="number" inputmode="numeric" min="0" step="1" id="pCom" value="${esc(p && p.commission != null ? p.commission : "")}" placeholder="0"><small>Gagnée par le vendeur quand sa vente est livrée. Changer la commission ne modifie pas les ventes déjà faites.</small></label>
     <div class="f2">
       <label class="field"><span>Quantité de départ</span><input type="number" inputmode="numeric" min="0" step="1" id="pStock" value="${esc(p ? p.stockInitial : "")}" ${p ? "readonly" : ""}><small>${p ? "Pour corriger, faites un inventaire." : "Ce qui est au Mali aujourd'hui"}</small></label>
       <label class="field"><span>Seuil d'alerte</span><input type="number" inputmode="numeric" min="0" step="1" id="pSeuil" value="${esc(p ? p.seuil : 5)}"><small>Alerte quand il en reste moins</small></label>
@@ -1826,15 +2007,16 @@ async function saveProduit(id) {
   setErr("");
   const nom = val("pNom").trim();
   if (!nom) return setErr("Donnez un nom au produit.");
-  const pa = num(val("pPa")), pv = num(val("pPv")), st = num(val("pStock")), seuil = num(val("pSeuil"));
-  if (pa < 0 || pv < 0 || st < 0 || seuil < 0) return setErr("Les nombres ne peuvent pas être négatifs.");
+  const pa = num(val("pPa")), pv = num(val("pPv")), st = num(val("pStock")), seuil = num(val("pSeuil")), com = num(val("pCom"));
+  if (pa < 0 || pv < 0 || st < 0 || seuil < 0 || com < 0) return setErr("Les nombres ne peuvent pas être négatifs.");
+  if (pv > 0 && com > pv) return setErr("La commission ne peut pas dépasser le prix de vente.");
   if (!Number.isInteger(st)) return setErr("La quantité doit être un nombre entier.");
   if (S.produits.some(p => p.id !== id && String(p.nom).trim().toLowerCase() === nom.toLowerCase())) return setErr("Un produit porte déjà ce nom.");
   if (id) {
     const p = S.produits.find(x => x.id === id);
-    const body = { ...p, nom, prixAchat: pa, prixVente: pv, seuil, modifiePar: S.me, modifieLe: nowIso() }; delete body.id;
+    const body = { ...p, nom, prixAchat: pa, prixVente: pv, commission: com, seuil, modifiePar: S.me, modifieLe: nowIso() }; delete body.id;
     if (await save(() => S.db.doc("produits/" + id).set(body), "Produit mis à jour")) closeSheet();
-  } else if (await save(() => S.db.collection("produits").add(stamp({ nom, prixAchat: pa, prixVente: pv, stockInitial: st, seuil, actif: true })), "Produit ajouté")) closeSheet();
+  } else if (await save(() => S.db.collection("produits").add(stamp({ nom, prixAchat: pa, prixVente: pv, commission: com, stockInitial: st, seuil, actif: true })), "Produit ajouté")) closeSheet();
 }
 function openProduit(id) {
   const p = S.produits.find(x => x.id === id); if (!p) return;
@@ -1850,7 +2032,7 @@ function openProduit(id) {
       <div><span class="l">Prix de vente</span><span class="v">${F(p.prixVente)}</span></div>
       <div><span class="l">Valeur (gros)</span><span class="v">${F(Math.max(q, 0) * num(p.prixAchat))}</span></div>
     </div>
-    <div>${stockChip(p, q)} <span class="small">Seuil d'alerte : ${num(p.seuil)} · marge unitaire ${F(num(p.prixVente) - num(p.prixAchat))}${num(p.prixAchat) > 0 ? ` (×${(num(p.prixVente) / num(p.prixAchat)).toLocaleString("fr-FR", { maximumFractionDigits: 1 })})` : ""}</span></div>
+    <div>${stockChip(p, q)} <span class="small">Seuil d'alerte : ${num(p.seuil)} · commission vendeur ${F(p.commission)} · marge unitaire ${F(num(p.prixVente) - num(p.prixAchat))}${num(p.prixAchat) > 0 ? ` (×${(num(p.prixVente) / num(p.prixAchat)).toLocaleString("fr-FR", { maximumFractionDigits: 1 })})` : ""}</span></div>
     ${canWrite() ? `<div class="row-actions">
       <button class="btn primary small" data-act="mvt" data-type="entree" data-id="${esc(id)}">+ Entrée</button>
       <button class="btn small" data-act="mvt" data-type="sortie" data-id="${esc(id)}">− Sortie</button>
@@ -2194,6 +2376,16 @@ document.addEventListener("click", async ev => {
     case "cmd-assign": { const l = val("cmdLivreur"); if (!l) break; if (await cmdAction(id, "assigner", "", l)) { toast("Livreur attribué : " + who(l)); openCmd(id); } break; }
     case "cmd-msg": { const t = val("cmdMsg").trim(); if (!t) { setErr("Écris un message."); break; } b.disabled = true; if (await cmdAction(id, "message", t)) { toast("Message envoyé"); if (S.commandes.some(x => x.id === id)) openCmd(id); } else b.disabled = false; break; }
     case "cf-import-livrees": importLivrees(); b.remove(); break;
+    case "go-commissions": location.hash = "commissions"; break;
+    case "new-retrait": openRetrait(); break;
+    case "retrait-save": await saveRetrait(); break;
+    case "cancel-retrait": askConfirm("Annuler ta demande de retrait ?", "Annuler la demande", async () => { const { error } = await S.sb.rpc("annuler_retrait", { p_id: id }); if (error) toast(error.message, true); else toast("Demande annulée"); await loadCommandes(); }); break;
+    case "retrait-payer": openPayer(id); break;
+    case "retrait-payer-save": b.disabled = true; if (await traiterRetrait(id, "paye", "", val("rpRef").trim())) { closeSheet(); toast("Retrait payé : sortie de caisse enregistrée"); } else b.disabled = false; break;
+    case "retrait-refuser": openRefuser(id); break;
+    case "retrait-refuser-save": { const t = val("rrMotif").trim(); if (!t) { setErr("Indique le motif du refus."); break; } b.disabled = true; if (await traiterRetrait(id, "refuse", t)) { closeSheet(); toast("Demande refusée"); } else b.disabled = false; break; }
+    case "edit-tarif": openTarif(); break;
+    case "tarif-save": { const n = num(val("tfMontant")); if (n < 0 || !Number.isInteger(n)) { setErr("Entrez un montant entier."); break; } if (await writeConfig(c => { c.tarifLivraison = n; }, "Paiement par livraison : " + F(n))) closeSheet(); break; }
     case "name-coordo": await nameCoordo(id); break;
     case "remove-coordo": askConfirm(`Retirer l'accès de ${who(id)} ? Il ne pourra plus rien voir ni saisir.`, "Retirer", () => setRole(id, "retire", "Accès retiré")); break;
     case "drop-demande": askConfirm(`Refuser l'inscription de ${who(id)} ?`, "Refuser", () => setRole(id, "refuse", "Inscription refusée")); break;
@@ -2343,7 +2535,7 @@ function startData() {
   const onErr = e => { if (e && e.code === "invalid_argument") { loadMembres(); } else S.stale = true; scheduleRender(); };
   S.db.doc("config/main").onSnapshot(snap => {
     const d = snap.exists ? snap.data() : null;
-    S.config = { soldeInitial: num(d && d.soldeInitial), dateDebut: (d && d.dateDebut) || null, coordos: {}, droits: (d && d.droits) || {}, objectifs: (d && d.objectifs) || {} };
+    S.config = { soldeInitial: num(d && d.soldeInitial), dateDebut: (d && d.dateDebut) || null, coordos: {}, droits: (d && d.droits) || {}, objectifs: (d && d.objectifs) || {}, tarifLivraison: d && d.tarifLivraison != null ? num(d.tarifLivraison) : 1000 };
     syncMembres(); S.configLoaded = true; settle(); scheduleRender();
   }, onErr);
   for (const c of COLLS) {
@@ -2357,7 +2549,7 @@ function startData() {
 async function onSession(session) {
   const prev = S.me;
   S.session = session || null; S.me = session ? session.user.id : null;
-  if (!session) { S.moi = null; S.moiLoaded = false; S.membres = []; S.commandes = []; S.cmdLoaded = false; scheduleRender(); return; }
+  if (!session) { S.moi = null; S.moiLoaded = false; S.membres = []; S.commandes = []; S.cmdLoaded = false; S.gains = []; S.retraits = []; S.soldes = new Map(); scheduleRender(); return; }
   if (prev !== S.me || !S.moiLoaded) {
     if (S.profilEnAttente) await finirInscription(); else await loadMembres();
     if (!membresChan) {
