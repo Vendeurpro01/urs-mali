@@ -451,6 +451,7 @@ const ICONS = {
   rapports: SVG('<path d="m22 7-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/>'),
   activite: SVG('<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>'),
   parametres: SVG('<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>'),
+  closing: SVG('<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/>'),
   commandes: SVG('<path d="M1 4h14v12H1zM15 8h4l4 4v4h-8z"/><circle cx="5.5" cy="18.5" r="2.2"/><circle cx="18.5" cy="18.5" r="2.2"/>'),
   courses: SVG('<path d="M1 4h14v12H1zM15 8h4l4 4v4h-8z"/><circle cx="5.5" cy="18.5" r="2.2"/><circle cx="18.5" cy="18.5" r="2.2"/>'),
   ventes: SVG('<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18M16 10a4 4 0 0 1-8 0"/>'),
@@ -472,7 +473,7 @@ const S = {
   validations: [], confirmations: [], consignes: [], reappros: [],
   loaded: new Set(), names: {}, askedNames: new Set(), stale: false, fatal: null,
   rep: { mode: "mois", from: null, to: null }, actFilter: "tout", actPerson: "tout",
-  commandes: [], cmdLoaded: false, catalogue: [], cmdFilter: "tout", gains: [], retraits: [], soldes: new Map(), tarif: null, rtOk: false, notifs: [], notifMax: 0, notifLoaded: false,
+  commandes: [], cmdLoaded: false, catalogue: [], cmdFilter: "tout", cloFilter: "dispo", gains: [], retraits: [], soldes: new Map(), tarif: null, rtOk: false, notifs: [], notifMax: 0, notifLoaded: false,
 };
 const COLLS = ["produits", "mouvements", "journal", "tresorerie", "engagements", "validations", "confirmations", "consignes", "reappros"];
 let D = null;
@@ -672,9 +673,9 @@ function toast(msg, bad) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = bad ? "bad" : ""; }, bad ? 5200 : 2600);
 }
 function views() {
-  if (isPdg()) return [["accueil", "Vue Super admin"], ["cloture", "Clôtures"], ["commandes", "Ventes & livraisons"], ["commissions", "Commissions"], ["stock", "Stock"], ["tresorerie", "Trésorerie"], ["engagements", "Engagements"], ["consignes", "Consignes"], ["rapports", "Rapports"], ["activite", "Activité"], ["equipe", "Équipe"], ["parametres", "Paramètres"]];
-  if (isCoordo()) return [["accueil", "Mon espace"], ["cloture", "Clôtures"], ["commandes", "Ventes & livraisons"], ["commissions", "Commissions"], ["stock", "Stock"], ["tresorerie", "Trésorerie"], ["engagements", "Engagements"], ["consignes", "Consignes"], ["rapports", "Rapports"], ["activite", "Activité"], ["equipe", "Équipe"]];
-  if (isVendeur()) return [["accueil", "Mon espace"], ["ventes", "Mes ventes"], ["produits", "Produits"], ["compte", "Mon compte"]];
+  if (isPdg()) return [["accueil", "Vue Super admin"], ["cloture", "Clôtures"], ["commandes", "Ventes & livraisons"], ["closing", "Closing en ligne"], ["commissions", "Commissions"], ["stock", "Stock"], ["tresorerie", "Trésorerie"], ["engagements", "Engagements"], ["consignes", "Consignes"], ["rapports", "Rapports"], ["activite", "Activité"], ["equipe", "Équipe"], ["parametres", "Paramètres"]];
+  if (isCoordo()) return [["accueil", "Mon espace"], ["cloture", "Clôtures"], ["commandes", "Ventes & livraisons"], ["closing", "Closing en ligne"], ["commissions", "Commissions"], ["stock", "Stock"], ["tresorerie", "Trésorerie"], ["engagements", "Engagements"], ["consignes", "Consignes"], ["rapports", "Rapports"], ["activite", "Activité"], ["equipe", "Équipe"]];
+  if (isVendeur()) return [["accueil", "Mon espace"], ["closing", "Closing"], ["ventes", "Mes ventes"], ["produits", "Produits"], ["compte", "Mon compte"]];
   if (isLivreur()) return [["accueil", "Mon espace"], ["courses", "Courses disponibles"], ["mescourses", "Mes courses"], ["compte", "Mon compte"]];
   return [];
 }
@@ -684,7 +685,8 @@ function tabCounts() {
   if (isPdg()) { c.cloture = D.aValider.length; c.tresorerie = D.envoisAttente.length; c.stock = D.reapDemandes.length; c.consignes = D.consRetard.length; c.equipe = S.demandes.length; }
   else if (isCoordo()) { c.cloture = (S.journal.some(j => j.date === t) ? 0 : 1) + D.aRevoir.length; c.consignes = D.consAFaire.length; c.stock = D.reapEnvoyes.length; if (may("equipe")) c.equipe = S.demandes.length; }
   if (isPdg() || isCoordo()) { c.commandes = S.commandes.filter(x => x.statut === "nouvelle").length; c.commissions = retraitsAPayer().length; }
-  if (isVendeur()) c.ventes = mesCmd().filter(x => x.statut === "echec").length;
+  if (isVendeur()) { c.ventes = mesCmd().filter(x => x.statut === "echec").length; c.closing = cloDispo().length + cloMes("a_relancer").filter(relanceDue).length; }
+  if (isPdg() || isCoordo()) c.closing = cloDispo().length;
   if (isLivreur()) { c.courses = dispo().length; c.mescourses = mesCourses().filter(enCours).length; }
   return c;
 }
@@ -721,6 +723,7 @@ function pageHead(cur) {
     parametres: ["Paramètres", "Droits des coordonnateurs, objectifs et caisse de départ"],
     equipe: ["Équipe", "Coordonnateurs, vendeurs, livreurs et inscriptions"],
     commandes: ["Ventes & livraisons", "Ventes des vendeurs, courses des livreurs et retards"],
+    closing: [isVendeur() ? "Closing" : "Closing en ligne", "Commandes de la boutique en ligne : prends-en une, appelle le client, valide"],
     ventes: ["Mes ventes", "Toutes tes ventes et où en est la livraison"],
     produits: ["Produits", "Ce que tu peux vendre, au prix conseillé"],
     courses: ["Courses disponibles", "Les ventes à livrer : prends-en une"],
@@ -768,7 +771,7 @@ function render() {
   const ready = (isVendeur() || isLivreur()) ? S.cmdLoaded : S.configLoaded && COLLS.every(c => S.loaded.has(c));
   if (!ready) { v.innerHTML = `<div class="center"><span class="logo-card"><img src="${LOGO}" alt="URS Store"></span><p>Chargement des données…</p>${S.stale ? '<p class="stale">Les données ne répondent pas encore. Vérifiez la connexion internet.</p>' : ""}</div>`; return; }
   const cur = currentView();
-  const map = { accueil: isPdg() ? viewPdg : isCoordo() ? viewCoordo : isVendeur() ? viewVendeur : viewLivreur, commandes: viewCommandes, commissions: viewCommissions, compte: viewCompte, ventes: viewVentes, produits: viewProduitsVendeur, courses: viewCourses, mescourses: viewMesCourses, cloture: viewCloture, stock: viewStock, tresorerie: viewTresorerie, engagements: viewEngagements, consignes: viewConsignes, rapports: viewRapports, activite: viewActivite, equipe: viewEquipe, parametres: viewParametres };
+  const map = { accueil: isPdg() ? viewPdg : isCoordo() ? viewCoordo : isVendeur() ? viewVendeur : viewLivreur, commandes: viewCommandes, closing: viewClosing, commissions: viewCommissions, compte: viewCompte, ventes: viewVentes, produits: viewProduitsVendeur, courses: viewCourses, mescourses: viewMesCourses, cloture: viewCloture, stock: viewStock, tresorerie: viewTresorerie, engagements: viewEngagements, consignes: viewConsignes, rapports: viewRapports, activite: viewActivite, equipe: viewEquipe, parametres: viewParametres };
   v.innerHTML = (S.stale ? `<p class="stale">Connexion lente : les chiffres affichés peuvent ne pas être à jour.</p>` : "") + pageHead(cur) + map[cur]();
   if (cur === "rapports") drawReportChart();
   const ids = [];
@@ -1076,7 +1079,7 @@ const isVendeur = () => S.role === "vendeur";
 const isLivreur = () => S.role === "livreur";
 const ROLE_LBL = { pdg: "Super admin (PDG)", coordo: "Coordonnateur", vendeur: "Vendeur", livreur: "Livreur" };
 const DELAI = 10; // minutes sans livreur avant « en retard » (puis U-Express)
-const CST = { nouvelle: ["warn", "Disponible"], prise: ["coordo", "Prise par un livreur"], en_route: ["coordo", "En livraison"], livree: ["good", "Livrée"], echec: ["bad", "Échec"], annulee: ["muted", "Annulée"] };
+const CST = { closing: ["owner", "En closing"], nouvelle: ["warn", "Disponible"], prise: ["coordo", "Prise par un livreur"], en_route: ["coordo", "En livraison"], livree: ["good", "Livrée"], echec: ["bad", "Échec"], annulee: ["muted", "Annulée"] };
 const minutesDepuis = iso => (Date.now() - new Date(iso).getTime()) / 60000;
 const enRetard = c => c.statut === "nouvelle" && !c.livreur_id && minutesDepuis(c.cree_le) >= DELAI;
 const clientNom = c => [c.client_prenom, c.client_nom].filter(Boolean).join(" ") || "Client";
@@ -1086,11 +1089,13 @@ const telHref = t => "tel:" + String(t || "").replace(/[^\d+]/g, "");
 const waHref = t => "https://wa.me/" + String(t || "").replace(/\D/g, "");
 const estAujourdhui = iso => !!iso && ymd(new Date(iso)) === today();
 const enCours = c => c.statut === "prise" || c.statut === "en_route";
-const mesCmd = () => S.commandes.filter(c => c.vendeur_id === S.me);
+const enVente = c => c.statut !== "closing" && !(c.source === "prowin" && c.closing === "annulee");
+const ventes = () => S.commandes.filter(enVente);
+const mesCmd = () => ventes().filter(c => c.vendeur_id === S.me);
 const mesCourses = () => S.commandes.filter(c => c.livreur_id === S.me);
 const dispo = () => S.commandes.filter(c => c.statut === "nouvelle" && !c.livreur_id).sort((a, b) => (a.cree_le < b.cree_le ? -1 : 1));
 const cmdRetard = () => S.commandes.filter(enRetard);
-const ACT_LBL = { creer: "Vente enregistrée", prendre: "Course prise", assigner: "Livreur attribué", relacher: "Course relâchée", en_route: "En route", livree: "Livrée", echec: "Échec", annuler: "Annulée", relancer: "Relancée", uexpress: "À transférer à U-Express", modifier: "Vente modifiée" };
+const ACT_LBL = { creer: "Vente enregistrée", prendre: "Course prise", assigner: "Livreur attribué", relacher: "Course relâchée", en_route: "En route", livree: "Livrée", echec: "Échec", annuler: "Annulée", relancer: "Relancée", uexpress: "À transférer à U-Express", modifier: "Vente modifiée", closing_prendre: "Prise pour closing", closing_relancer: "À relancer", closing_valider: "Validée par le vendeur", closing_rejeter: "Rejetée", closing_annuler: "Annulée par le client" };
 
 function cmdChip(c) {
   const [k, l] = CST[c.statut] || ["muted", c.statut];
@@ -1175,7 +1180,7 @@ function viewMesCourses() {
 
 /* ---- Super admin et coordonnateur ---- */
 function resumeVentes() {
-  const all = S.commandes; const auj = all.filter(c => estAujourdhui(c.cree_le)); const liv = all.filter(c => c.statut === "livree" && estAujourdhui(c.livre_le));
+  const all = ventes(); const auj = all.filter(c => estAujourdhui(c.cree_le)); const liv = all.filter(c => c.statut === "livree" && estAujourdhui(c.livre_le));
   return { auj, liv, sans: all.filter(c => c.statut === "nouvelle"), cours: all.filter(enCours), echec: all.filter(c => c.statut === "echec"), retard: cmdRetard() };
 }
 function ventesJourHtml() {
@@ -1190,7 +1195,7 @@ function ventesJourHtml() {
 }
 function viewCommandes() {
   const r = resumeVentes();
-  const l = filtreCmd(S.commandes, S.cmdFilter);
+  const l = filtreCmd(ventes(), S.cmdFilter);
   return `<section class="kpis k4">
       ${kpi("lead", "Ventes aujourd'hui", r.auj.length, F(r.auj.reduce((s, c) => s + num(c.montant), 0)))}
       ${kpi(r.retard.length ? "bad" : r.sans.length ? "warn" : "", "Sans livreur", r.sans.length, r.retard.length ? `${r.retard.length} en retard (plus de ${DELAI} min)` : "Disponibles pour les livreurs")}
@@ -1202,9 +1207,126 @@ function viewCommandes() {
     <section class="card"><h3>Connexion U-Express</h3><p class="small" style="margin:0">Prévue : une vente sans livreur après ${DELAI} minutes sera envoyée automatiquement à U-Express. Pour l'instant, marque-la « à transférer » depuis la vente.</p></section>`;
 }
 
+/* ---- Closing des commandes de la boutique en ligne (PROWIN STORES) ---- */
+let CLO_MIN = 30; // minutes : une commande prise sans suite redevient disponible (réglage closingMinutes)
+const CLO_ST = { disponible: ["warn", "Disponible"], en_cours: ["coordo", "En cours"], a_relancer: ["owner", "À relancer"], validee: ["good", "Validée"], rejetee: ["bad", "Rejetée"], annulee: ["muted", "Annulée"] };
+const CLO_TABS = [["dispo", "Disponibles"], ["en_cours", "En cours"], ["a_relancer", "À relancer"], ["validee", "Validées"], ["rejetee", "Rejetées"], ["annulee", "Annulées"]];
+const isClo = c => c.source === "prowin" && !!c.closing;
+const cloExpire = c => c.statut === "closing" && c.closing === "en_cours" && minutesDepuis(c.closing_le || c.cree_le) >= CLO_MIN;
+const cloLibre = c => c.statut === "closing" && (c.closing === "disponible" || c.closing === "rejetee" || (cloExpire(c) && c.vendeur_id !== S.me));
+const cloDispo = () => S.commandes.filter(c => isClo(c) && c.statut === "closing" && (c.closing === "disponible" || (cloExpire(c) && c.vendeur_id !== S.me))).sort((a, b) => (a.cree_le < b.cree_le ? -1 : 1));
+const cloMes = etat => S.commandes.filter(c => isClo(c) && c.closing === etat && ((isPdg() || isCoordo()) || c.vendeur_id === S.me) && !(etat === "en_cours" && cloExpire(c) && c.vendeur_id !== S.me));
+const cloRejetees = () => S.commandes.filter(c => isClo(c) && c.statut === "closing" && c.closing === "rejetee");
+const relanceDue = c => !!c.relance_le && new Date(c.relance_le).getTime() <= Date.now();
+const dernierRejet = c => { const r = Array.isArray(c.rejets) ? c.rejets : []; return r.length ? r[r.length - 1] : null; };
+function cloListe(k) {
+  if (k === "dispo") return cloDispo();
+  if (k === "rejetee") return cloRejetees();
+  const l = cloMes(k);
+  if (k === "a_relancer") return l.sort((a, b) => String(a.relance_le || "") < String(b.relance_le || "") ? -1 : 1);
+  return l.sort((a, b) => (String(a.closing_le || a.cree_le) < String(b.closing_le || b.cree_le) ? 1 : -1));
+}
+function cloChip(c) {
+  const [k, l] = CLO_ST[c.closing] || ["muted", c.closing];
+  let h = `<span class="chip ${k}"><span class="dot"></span>${l}</span>`;
+  if (c.closing === "en_cours") h += cloExpire(c) ? ` <span class="chip bad">Sans suite depuis ${Math.round(minutesDepuis(c.closing_le))} min</span>` : ` <span class="chip muted">Prise ${esc(rel(c.closing_le))}</span>`;
+  if (c.closing === "a_relancer" && c.relance_le) h += ` <span class="chip ${relanceDue(c) ? "bad" : "muted"}">${relanceDue(c) ? "À rappeler maintenant" : "Rappeler " + esc(tShort(c.relance_le))}</span>`;
+  if (c.closing === "validee" && c.statut !== "nouvelle") h += ` ${cmdChip(c)}`;
+  return h;
+}
+function cloCard(c) {
+  const mine = c.vendeur_id === S.me, chef = isPdg() || isCoordo(), btn = (a, l, cls) => `<button class="btn ${cls || "small"}" data-act="clo-do" data-a="${a}" data-id="${esc(c.id)}">${l}</button>`;
+  const q = [];
+  if (cloLibre(c) && (isVendeur() || chef)) q.push(btn("prendre", "Prendre la commande", "primary small"));
+  if ((mine || chef) && ["en_cours", "a_relancer"].includes(c.closing) && c.statut === "closing") {
+    q.push(`<a class="btn small" href="${esc(telHref(c.client_tel))}" data-act="clo-appel" data-id="${esc(c.id)}">Appeler</a>`, `<a class="btn small" href="${esc(waHref(c.client_tel))}" target="_blank" rel="noopener" data-act="clo-appel">WhatsApp</a>`);
+    q.push(btn("valider", "Valider", "ok small"), `<button class="btn small" data-act="clo-open" data-id="${esc(c.id)}">À relancer / Rejeter / Annuler</button>`);
+  }
+  const rj = dernierRejet(c);
+  return `<div class="item clickable" data-act="clo-open" data-id="${esc(c.id)}">
+    <span class="t">#${esc(c.numero)} · ${esc(clientNom(c))}</span><span class="r">${F(totalCmd(c))}<small>${esc(rel(c.cree_le))}</small></span>
+    <div class="full row-actions">${cloChip(c)}${c.ext_numero ? `<span class="chip muted">Boutique n°${esc(c.ext_numero)}</span>` : ""}</div>
+    <span class="m full">${esc(c.client_tel)} · ${esc([c.destination, c.ville].filter(Boolean).join(", "))}<br>${esc(articlesTxt(c))}${c.vendeur_id && !mine ? " · vendeur : " + esc(who(c.vendeur_id)) : ""}${c.closing === "rejetee" && rj ? `<br><b>Rejetée par ${esc(rj.nom || who(rj.par))}</b>${rj.motif ? " : « " + esc(rj.motif) + " »" : ""} · ${esc(rel(rj.le))}` : ""}${c.closing === "annulee" && c.motif ? `<br>Motif : ${esc(c.motif)}` : ""}</span>
+    ${q.length ? `<div class="row-actions full">${q.join("")}</div>` : ""}
+  </div>`;
+}
+function viewClosing() {
+  const chef = isPdg() || isCoordo();
+  const k = CLO_TABS.some(t => t[0] === S.cloFilter) ? S.cloFilter : "dispo";
+  const n = Object.fromEntries(CLO_TABS.map(([t]) => [t, cloListe(t).length]));
+  const dues = cloMes("a_relancer").filter(relanceDue);
+  const aide = {
+    dispo: "Nouvelles commandes de la boutique en ligne. Le premier vendeur qui touche « Prendre » l'a.",
+    en_cours: `Commandes prises, pas encore closées. Appelle le client. Sans suite après ${CLO_MIN} minutes, elles redeviennent disponibles pour les autres.`,
+    a_relancer: "Clients à rappeler. Elles restent à toi.",
+    validee: "Le client a confirmé : la commande est partie chez les livreurs. La commission est acquise à la livraison.",
+    rejetee: "Commandes lâchées par un vendeur : tout le monde voit qui l'a rejetée et pourquoi. Tu peux la prendre pour tenter ta chance.",
+    annulee: "Le client ne veut pas la commande : c'est terminé.",
+  }[k];
+  const tabs = `<div class="filters" role="group" aria-label="Closing">${CLO_TABS.map(([t, l]) => `<button data-act="clo-filter" data-k="${t}" aria-pressed="${k === t}">${l}${n[t] ? ` (${n[t]})` : ""}</button>`).join("")}</div>`;
+  const kpis = `<section class="kpis k4">
+      ${kpi(n.dispo ? "warn" : "", "Disponibles", n.dispo, n.dispo ? "À prendre maintenant" : "Rien pour l'instant")}
+      ${kpi("lead", chef ? "En cours (tous)" : "Mes commandes en cours", n.en_cours, "Prises, à appeler")}
+      ${kpi(dues.length ? "bad" : "", "À relancer", n.a_relancer, dues.length ? `${dues.length} à rappeler maintenant` : "Rappels programmés")}
+      ${kpi("gold", chef ? "Validées aujourd'hui" : "Mes validées aujourd'hui", cloMes("validee").filter(c => estAujourdhui(c.closing_le)).length, "Parties chez les livreurs")}
+    </section>`;
+  const l = cloListe(k);
+  return kpis + (dues.length && k !== "a_relancer" ? `<div class="banner bad"><p><strong>${plural(dues.length, "client à rappeler", "clients à rappeler")}</strong>L'heure de rappel est passée.</p><button class="btn small" data-act="clo-filter" data-k="a_relancer">Voir</button></div>` : "")
+    + `<section class="card ${k === "dispo" ? "todo" : ""}"><div class="card-h">${tabs}</div><p class="small" style="margin:0 0 8px">${esc(aide)}</p>${l.length ? `<div class="list">${l.map(cloCard).join("")}</div>` : `<p class="empty">Aucune commande dans cette liste.</p>`}</section>`
+    + (isPdg() ? `<p class="small" style="text-align:center;margin-top:14px"><button class="btn ghost small" data-act="clo-code">Code de connexion PROWIN STORES</button></p>` : "");
+}
+async function openCloCode() {
+  const { data, error } = await S.sb.rpc("prowin_code");
+  if (error || !data) return toast((error && error.message) || "Code introuvable : la mise à jour closing n'est pas installée.", true);
+  // Un seul code à coller dans PROWIN : adresse du projet + clé publique + code secret
+  const code = "ursmali1." + btoa(JSON.stringify({ u: CFG.url, k: CFG.cle, s: data })).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  openSheet("Code de connexion PROWIN STORES", `<p class="small">1. Copiez ce code. 2. Dans PROWIN STORES → Paramètres → « Closing URS Mali », collez-le dans « Code de connexion » puis touchez « Enregistrer et tester ». Ne le partagez avec personne d'autre.</p>
+    <textarea id="cloCodeBox" readonly rows="4" style="font-family:ui-monospace,monospace;font-size:12px;word-break:break-all">${esc(code)}</textarea>
+    <button class="btn primary" style="width:100%;margin-top:10px" data-act="clo-code-copy">Copier le code</button>`);
+}
+function openClo(id) {
+  const c = S.commandes.find(x => x.id === id); if (!c) return toast("Commande introuvable : elle a peut-être été prise par un autre vendeur.", true);
+  lireNotifsCmd(id);
+  const mine = c.vendeur_id === S.me, chef = isPdg() || isCoordo(), actif = c.statut === "closing" && ["en_cours", "a_relancer"].includes(c.closing) && (mine || chef);
+  const arts = Array.isArray(c.articles) ? c.articles : [];
+  const rejets = Array.isArray(c.rejets) ? c.rejets : [];
+  const hist = (Array.isArray(c.historique) ? c.historique : []).slice().reverse();
+  const plus1h = new Date(Date.now() + 3600e3), toLocal = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  openSheet(`Commande #${c.numero}`, `
+    <div class="row-actions">${cloChip(c)}${c.ext_numero ? `<span class="chip muted">Boutique en ligne n°${esc(c.ext_numero)}</span>` : ""}</div>
+    <div class="mini" style="grid-template-columns:1fr">
+      <div><span class="l">Client</span><span class="v">${esc(clientNom(c))}</span><span class="row-actions" style="margin-top:6px"><a class="btn small" href="${esc(telHref(c.client_tel))}">Appeler ${esc(c.client_tel)}</a><a class="btn small" href="${esc(waHref(c.client_tel))}" target="_blank" rel="noopener">WhatsApp</a></span></div>
+      <div><span class="l">Adresse</span><span class="v">${esc([c.destination, c.ville].filter(Boolean).join(", ") || "—")}</span></div>
+    </div>
+    <div class="tbl-wrap"><table><thead><tr><th>Produit</th><th class="n">Qté</th><th class="n">Prix</th><th class="n">Total</th></tr></thead><tbody>
+      ${arts.map(a => `<tr><td>${esc(a.nom)}</td><td class="n">${num(a.qte)}</td><td class="n">${F(a.prix)}</td><td class="n">${F(num(a.qte) * num(a.prix))}</td></tr>`).join("")}
+      ${num(c.frais_livraison) ? `<tr><td>Livraison</td><td></td><td></td><td class="n">${F(c.frais_livraison)}</td></tr>` : ""}
+      <tr><td><b>À encaisser</b></td><td></td><td></td><td class="n"><b>${F(totalCmd(c))}</b></td></tr>
+    </tbody></table></div>
+    ${c.note ? `<div class="quote">Note du client : ${esc(c.note)}</div>` : ""}
+    ${rejets.length ? `<div class="quote">${rejets.map(r => `Rejetée par <b>${esc(r.nom || who(r.par))}</b>${r.motif ? " : « " + esc(r.motif) + " »" : ""} · ${esc(tShort(r.le))}`).join("<br>")}</div>` : ""}
+    ${c.motif && c.closing === "annulee" ? `<div class="quote">Motif : ${esc(c.motif)}</div>` : ""}
+    ${c.vendeur_id ? `<p class="small" style="margin:0">Vendeur : ${esc(who(c.vendeur_id))}</p>` : ""}
+    ${cloLibre(c) && (isVendeur() || chef) ? `<div class="row-actions"><button class="btn primary" data-act="clo-do" data-a="prendre" data-id="${esc(c.id)}">Prendre la commande</button></div>` : ""}
+    ${actif ? `<fieldset class="fs"><legend>Après l'appel</legend>
+      <div class="row-actions"><button class="btn ok" data-act="clo-do" data-a="valider" data-id="${esc(c.id)}">Valider : le client confirme</button></div>
+      <label class="field"><span>Note ou motif (obligatoire pour annuler)</span><input type="text" id="cloTexte" placeholder="Ex. rappeler après 17 h · ne répond pas · ne veut plus"></label>
+      <div class="f2"><label class="field"><span>Rappeler le</span><input type="datetime-local" id="cloRelance" value="${esc(toLocal(plus1h))}"></label>
+      <div class="field"><span>&nbsp;</span><button class="btn" data-act="clo-do" data-a="relancer" data-id="${esc(c.id)}">À relancer</button></div></div>
+      <div class="row-actions"><button class="btn small" data-act="clo-do" data-a="rejeter" data-id="${esc(c.id)}">Rejeter : qu'un autre vendeur la prenne</button><button class="btn danger small" data-act="clo-do" data-a="annuler" data-id="${esc(c.id)}">Annuler : le client ne veut pas</button></div>
+      <p class="err" id="sheetErr"></p></fieldset>` : `<p class="err" id="sheetErr"></p>`}
+    <details><summary class="small">Historique (${hist.length})</summary><div class="list">${hist.map(h => `<div class="item"><span class="t">${esc(ACT_LBL[h.action] || h.action)}</span><span class="m">${esc(h.par ? who(h.par) : "Boutique en ligne")} · ${esc(tShort(h.le))}${h.texte ? " · " + esc(h.texte) : ""}</span></div>`).join("")}</div></details>`);
+}
+async function cloAction(id, action, texte, relance) {
+  const { error } = await S.sb.rpc("closing_action", { p_id: id, p_action: action, p_texte: texte || "", p_relance: relance || null });
+  if (error) { const m = error.message || ""; setErr(m); toast(m || "Action impossible", true); await loadCommandes(); return false; }
+  await loadCommandes(); return true;
+}
+
 /* ---- Fiche d'une vente ---- */
 function openCmd(id) {
   const c = S.commandes.find(x => x.id === id); if (!c) return toast("Vente introuvable : elle a peut-être été prise par un autre livreur.", true);
+  if (c.statut === "closing" || (c.source === "prowin" && c.closing === "annulee")) return openClo(id);
   lireNotifsCmd(id);
   const chef = isPdg() || isCoordo(), moiLiv = isLivreur() && c.livreur_id === S.me, moiVend = isVendeur() && c.vendeur_id === S.me;
   const btn = (a, l, cls) => `<button class="btn ${cls || "small"}" data-act="cmd-do" data-a="${a}" data-id="${esc(c.id)}">${l}</button>`;
@@ -1654,7 +1776,7 @@ async function ursNotifClic(id) {
   if (n.commande_id) {
     if (!S.commandes.some(c => c.id === n.commande_id)) await loadCommandes();
     if (S.commandes.some(c => c.id === n.commande_id)) return openCmd(n.commande_id);
-    closeSheet(); return toast("Cette vente n'est plus visible pour toi (prise par un autre livreur ou annulée).", true);
+    closeSheet(); return toast("Cette commande n'est plus visible pour toi (prise par quelqu'un d'autre ou annulée).", true);
   }
   closeSheet();
   if (n.lien) location.hash = n.lien;
@@ -2564,6 +2686,33 @@ document.addEventListener("click", async ev => {
     case "v-rm": VF.lignes.splice(+b.dataset.i, 1); if (!VF.lignes.length) VF.lignes.push({ produitId: "", qte: "", prix: "" }); renderVf(); updateVf(); break;
     case "v-save": await saveVente(); break;
     case "open-cmd": openCmd(id); break;
+    case "clo-open": openClo(id); break;
+    case "clo-filter": S.cloFilter = b.dataset.k; render(); break;
+    case "clo-appel": break; // le lien tel: ouvre le téléphone
+    case "clo-code": await openCloCode(); break;
+    case "clo-code-copy": { const t = ($("#cloCodeBox") || {}).value || ""; try { await navigator.clipboard.writeText(t); toast("Code copié"); } catch (e) { const a = $("#cloCodeBox"); if (a) { a.focus(); a.select(); } toast("Sélectionnez le code et copiez-le."); } break; }
+    case "clo-do": {
+      const act = b.dataset.a, c = S.commandes.find(x => x.id === id); if (!c) break;
+      const texte = val("cloTexte").trim(), ouvert = !$("#layer").hidden;
+      let relance = null;
+      if (act === "relancer") { const v = val("cloRelance"); if (!ouvert) { openClo(id); break; } relance = v ? new Date(v).toISOString() : null; }
+      if (act === "annuler" && !texte) { if (!ouvert) openClo(id); setErr("Indique pourquoi le client ne veut pas la commande, puis touche à nouveau « Annuler »."); const ti = $("#cloTexte"); if (ti) ti.focus(); break; }
+      if (act === "rejeter" && !ouvert) { openClo(id); break; }
+      const go = async () => {
+        b.disabled = true;
+        if (await cloAction(id, act, texte, relance)) {
+          toast({ prendre: `Commande #${c.numero} prise : appelle le client maintenant`, valider: `Commande #${c.numero} validée : elle part chez les livreurs`, relancer: "Rappel programmé", rejeter: "Commande rejetée : les autres vendeurs peuvent la prendre", annuler: "Commande annulée" }[act] || "C'est fait");
+          if (act === "prendre") { S.cloFilter = "en_cours"; if (location.hash !== "#closing") location.hash = "closing"; }
+          if (ouvert) { const x = S.commandes.find(y => y.id === id); if (act === "prendre" && x) openClo(id); else closeSheet(); }
+          render();
+        } else b.disabled = false;
+      };
+      if (act === "valider") askConfirm(`Le client a confirmé la commande #${c.numero} (${F(totalCmd(c))}) ? Elle part chez les livreurs.`, "Oui, valider", go);
+      else if (act === "annuler") askConfirm(`Annuler la commande #${c.numero} ? C'est définitif.`, "Annuler la commande", go);
+      else if (act === "rejeter") askConfirm(`Rejeter la commande #${c.numero} ? Elle redevient disponible pour les autres vendeurs.`, "Rejeter", go);
+      else await go();
+      break;
+    }
     case "cmd-filter": S.cmdFilter = b.dataset.k; if (b.dataset.go && location.hash !== "#" + b.dataset.go) location.hash = b.dataset.go; else render(); break;
     case "cmd-do": {
       const act = b.dataset.a, c = S.commandes.find(x => x.id === id); if (!c) break;
