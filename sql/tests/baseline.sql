@@ -17,7 +17,7 @@ create table public.commandes (
   id uuid primary key default gen_random_uuid(), numero bigint generated always as identity, cree_le timestamptz not null default now(),
   vendeur_id uuid not null default auth.uid(), client_prenom text not null default '', client_nom text not null default '', client_tel text not null default '',
   destination text not null default '', ville text not null default 'Bamako', articles jsonb not null default '[]', montant numeric not null default 0,
-  frais_livraison numeric not null default 0, note text not null default '', statut text not null default 'nouvelle', livreur_id uuid, pris_le timestamptz,
+  frais_livraison numeric not null default 0, note text not null default '', statut text not null default 'nouvelle' constraint commandes_statut_check check (statut = any (array['nouvelle','prise','en_route','livree','echec','annulee'])), livreur_id uuid, pris_le timestamptz,
   livre_le timestamptz, motif text, messages jsonb not null default '[]', historique jsonb not null default '[]', uexpress_statut text, uexpress_ref text,
   uexpress_le timestamptz, maj_le timestamptz not null default now());
 create table public.gains (id uuid primary key default gen_random_uuid(), commande_id uuid not null, membre_id uuid not null, type text not null, montant numeric not null default 0, statut text not null default 'attente', details jsonb not null default '[]', cree_le timestamptz not null default now(), acquis_le timestamptz, unique (commande_id, type));
